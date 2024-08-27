@@ -1,0 +1,37 @@
+严正申明：本项目禁止用于非法用途！！！
+
+Miniblink是一个全新的、追求极致小巧的开源浏览器内核项目。
+其基于chromium最新版内核，去除了所有多余的部件，只保留最基本的排版引擎。
+Miniblink保持了10M左右的极简大小，方便嵌入各种需要浏览服务的场景，拥有所有同类产品中最小的体积，同时支持windows xp、npapi。
+Miniblink只需一个dll，通过导出的纯C的接口，数行代码即可集成到各种软件。
+同时miniblink还衍生了精简electron项目，将原版近百M的electron，精简至20M左右。
+更多介绍见：http://miniblink.net/
+
+------------------------------------------------------------------------
+* 注意，老版本的node.dll和mb.dll已经合并为一个dll，既下文所述的miniblink_4975_x32.dll、miniblink_4957_x32.dll等dll。
+请用户根据自己情况选择一个dll加载即可。
+* demo_src是demo的源码。直接打开demo_src\wkexe.sln编译即可运行。
+
+* miniblink_4975_x32.dll是miniblink的主dll，wkexe_4975_x32.exe是测试程序。此dll使用75版本v8，且带了nodejs，可以跑起目录里的electron.exe。
+* miniblink_4949_x32是不带nodejs版本的miniblink，并且使用48版本v8。由于v8版本比较老，很多js语法不兼容，不推荐使用。
+* miniblink_4957_x32.dll是带nodejs的、使用57版本v8的miniblink。同理，wkexe_4957_x32.exe是测试exe。
+* miniblink_4975_x64.dll是miniblink_4975_x32.dll的x64版本，使用v8的75版本。
+* miniblink_5775_x32.dll是新blink内核版本的主dll，支持更丰富的html5特性，并使用v8的75版本。目前处于测试阶段，暂时不收费，未来可能收费，但即使收费也不影响已经使用的用户。
+* miniblink_5775_x32.dll使用的是mb vip版本的接口。和普通miniblink不一样
+
+* vip_miniblink_4975_x32.exe是VIP版测试exe，可以使用多线程渲染\PDF\音视频等功能。如需购买，请联系作者（http://miniblink.net/views/features.html）。
+
+* API文档见：http://miniblink.net/views/doc/index.html
+
+* plugins目录存放了flash等插件。其中flash在播放音视频时候需要。pdfium.dll在打印、显示pdf时需要。如果需要播放视频，务必在exe目录下放plugins\ffmpeg\ffmpeg.dll
+
+* mb.h是vip版本接口。wke.h是普通版接口
+-------------------------------------------------------------------------
+
+* 包里的mini_electron.exe是精简版的electron。使用方式和原版几乎一样。但需要将miniblink.asar放置resources目录下（原版是将electron.asar放置resources目录）。
+
+-------------------------------------------------------------------------
+
+本项目使用Apache License 2.0协议，使用者需要在项目发布文件中显式申明使用了miniblink。
+另外，请务必遵守国家法律法规使用，不得用于非法目的。
+

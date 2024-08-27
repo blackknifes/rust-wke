@@ -1,0 +1,23 @@
+[package]
+name = "wke-sys"
+version = "0.1.0"
+edition = "2021"
+description = "Raw wke bindings for Rust, used internally wke"
+repository = "https://github.com/blackknifes/rust-wke"
+authors = ["bknife"]
+keywords = ["wke", "miniblink", "windowing", "ffi", "browser"]
+categories = ["rendering","external-ffi-bindings"]
+license = "MIT"
+links = "wke"
+build = "build.rs"
+
+[lib]
+name = "wke_sys"
+path = "src/lib.rs"
+
+[dependencies]
+libc = "^0.2"
+
+[build-dependencies]
+bindgen = "^0.70"
+cc = "1.1.14"
