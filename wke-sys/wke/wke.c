@@ -1,7 +1,7 @@
 #include "wke.h"
 #include <Windows.h>
 
-void rustRunLoop()
+void win32RunLoop()
 {
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)){
@@ -10,7 +10,7 @@ void rustRunLoop()
     }
 }
 
-int rustRunLoopOnce()
+int win32RunLoopOnce()
 {
     MSG msg;
     while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
@@ -23,6 +23,7 @@ int rustRunLoopOnce()
             }
             return -1;
         }
+        
         TranslateMessage(&msg);
         DispatchMessage(&msg);
         return 1;
@@ -31,7 +32,7 @@ int rustRunLoopOnce()
     return 0;
 }
 
-void rustExitLoop()
+void win32ExitLoop()
 {
     PostQuitMessage(0);
 }

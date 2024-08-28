@@ -7,6 +7,5 @@
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
         "target": true,
-        "wke-sys": true,
     }
 }

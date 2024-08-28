@@ -11,7 +11,7 @@ use crate::{
 use wke_sys::{
     _wkeProxyType_WKE_PROXY_HTTP, _wkeProxyType_WKE_PROXY_NONE, _wkeProxyType_WKE_PROXY_SOCKS4,
     _wkeProxyType_WKE_PROXY_SOCKS4A, _wkeProxyType_WKE_PROXY_SOCKS5,
-    _wkeProxyType_WKE_PROXY_SOCKS5HOSTNAME, rustExitLoop, rustRunLoop, rustRunLoopOnce,
+    _wkeProxyType_WKE_PROXY_SOCKS5HOSTNAME, win32ExitLoop, win32RunLoop, win32RunLoopOnce,
     wkeEnableHighDPISupport, wkeInit, wkeIsInitialize, wkeProxy, wkeProxyType, wkeSetProxy,
     wkeSetWkeDllPath, wkeShutdown, wkeVersion, wkeVersionString,
 };
@@ -177,7 +177,7 @@ pub fn version_str() -> Result<String> {
 
 pub fn run() {
     unsafe {
-        rustRunLoop();
+        win32RunLoop();
     }
 }
 
@@ -189,7 +189,7 @@ pub enum RunOnceFlag {
 
 pub fn run_once() -> RunOnceFlag {
     unsafe {
-        let result = rustRunLoopOnce();
+        let result = win32RunLoopOnce();
         match result {
             1 => RunOnceFlag::RunOnce,
             0 => RunOnceFlag::Idle,
@@ -200,7 +200,7 @@ pub fn run_once() -> RunOnceFlag {
 
 pub fn exit() {
     unsafe {
-        rustExitLoop();
+        win32ExitLoop();
     }
 }
 

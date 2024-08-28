@@ -7,4 +7,13 @@ edition = "2021"
 path = "wke-sys"
 version = "^0.1.0"
 
+[dev-dependencies.wke-test]
+path = "wke-test"
+version = "^0.1.0"
+
 [dependencies]
+lazy_static = "1.5.0"
+tokio = { version = "^1.39", features = ["full"] }
+
+[dev-dependencies]
+ctor = "0.2.8"

@@ -1542,9 +1542,9 @@ int wkeInitialize()
     return wkeInitializeEx(((const wkeSettings*)0));
 }
 
-void rustRunLoop();
-int rustRunLoopOnce();
-void rustExitLoop();
+void win32RunLoop();
+int win32RunLoopOnce();
+void win32ExitLoop();
 
 #endif
 
