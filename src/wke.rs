@@ -3,6 +3,7 @@ pub mod delegate;
 pub mod javascript;
 pub mod webframe;
 pub mod webview;
+pub use wke_main::main;
 
 use crate::{
     error::{Error, Result},
@@ -246,3 +247,4 @@ pub fn enable_high_dpi_support() {
 //         );
 //     }
 // }
+

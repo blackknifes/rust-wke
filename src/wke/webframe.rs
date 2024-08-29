@@ -39,6 +39,7 @@ impl PrintSettings {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn into_native(&self) -> wkePrintSettings {
         wkePrintSettings {
             structSize: std::mem::size_of::<wkePrintSettings>() as i32,
@@ -73,7 +74,7 @@ impl WebFrame {
         Self { webview, frame }
     }
 
-    pub async fn run_js(&self, script: &str, is_in_closure: bool) -> JsValue {
+    pub async fn run_js(&self, _script: &str, _is_in_closure: bool) -> JsValue {
         todo!()
     }
 

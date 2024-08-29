@@ -20,6 +20,7 @@ pub(crate) unsafe fn from_cstr_ptr(str: *const c_char) -> Result<String> {
     Ok(str)
 }
 
+#[allow(dead_code)]
 pub(crate) fn to_bool_int(value: bool) -> BOOL {
     if value {
         1

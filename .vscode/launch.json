@@ -13,14 +13,13 @@
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=wke"
+                    "--package=wke",
                 ],
                 "filter": {
                     "name": "wke",
                     "kind": "lib"
-                }
+                },
             },
-            "args": [],
             "cwd": "${workspaceFolder}"
         }
     ]

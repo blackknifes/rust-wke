@@ -1,3 +1,4 @@
+#[allow(unused_macros)]
 macro_rules! DefineMulticastDelegateImpl {
     ($name:ident, ($($param_name:ident: $param_type:ty),*), $traits: expr) => {
         #[derive(Default)]

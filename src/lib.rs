@@ -1,41 +1,20 @@
 pub mod error;
 pub mod wke;
+
 mod utils;
-
-#[proc_macro_attribute]
-pub fn setup_teardown(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as ItemFn);
-    let name = &input.sig.ident;
-    let block = &input.block;
-
-    let gen = quote! {
-        #[test]
-        fn #name() {
-            setup();
-            let result = std::panic::catch_unwind(|| {
-                #block
-            });
-            teardown();
-            if let Err(err) = result {
-                std::panic::resume_unwind(err);
-            }
-        }
-    };
-
-    gen.into()
-}
 
 #[cfg(test)]
 mod tests {
-    use ctor::ctor;
-    use lazy_static::lazy_static;
-    use wke::{
-        common::Rect,
-        run_once,
-        webview::{self, DebugConfig},
-    };
+    use std::time::Duration;
 
     use super::*;
+    use error::Result;
+    use lazy_static::lazy_static;
+    use tokio::task::LocalSet;
+    use wke::{
+        common::Rect,
+        webview::{self, DebugConfig},
+    };
 
     #[cfg(target_os = "windows")]
     #[cfg(target_arch = "x86")]
@@ -50,28 +29,25 @@ mod tests {
             .expect("cannot get current dir")
             .join("wke-sys")
             .join("wke")
-            .join(DLL)
+            .join("front_end")
+            .join("inspector.html")
             .to_str()
             .expect("cannot get dll path")
             .to_owned();
-    };
+    }
 
-    #[ctor]
-    fn init() {
-        let dll = std::env::current_dir()
+    fn get_dll_path() -> String {
+        std::env::current_dir()
             .expect("cannot get current dir")
             .join("wke-sys")
             .join("wke")
             .join(DLL)
             .to_str()
             .expect("cannot get dll path")
-            .to_owned();
-
-        wke::init(&dll).expect("init failed");
+            .to_owned()
     }
 
-    #[test]
-    fn test_popup() {
+    async fn test_popup() -> Result<()> {
         let webview = webview::WebView::popup(Rect {
             x: 0,
             y: 0,
@@ -81,22 +57,24 @@ mod tests {
         webview.load_url("https://baidu.com");
         webview.set_debug_config(DebugConfig::ShowDevTools(DEV_TOOLS_PATH.clone()));
         webview.show();
-        webview
-            .show_devtools(&DEV_TOOLS_PATH)
-            .expect("show dev tools failed");
+        let devtools = webview.show_devtools(&DEV_TOOLS_PATH).await?;
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        devtools.close();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        wke::exit();
 
-        loop {
-            run_once();
-        }
+        Ok(())
     }
 
     #[test]
-    fn test_tokio() -> crate::error::Result<()> {
-        let runtime = tokio::runtime::Runtime::new().expect("");
-        runtime.block_on(async move {
-            tokio::fs::write("D:/test.txt", "test").await?;
-            crate::error::Result::Ok(())
-        })?;
+    fn test_tokio() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        main()?;
         Ok(())
+    }
+
+    #[wke::main(dll = get_dll_path)]
+    async fn main() -> crate::error::Result<()> {
+        test_popup().await?;
+        return Ok(());
     }
 }

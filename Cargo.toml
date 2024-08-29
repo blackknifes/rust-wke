@@ -3,17 +3,17 @@ name = "wke"
 version = "0.1.0"
 edition = "2021"
 
+[dev-dependencies]
+ctor = "0.2.8"
+
 [dependencies.wke-sys]
 path = "wke-sys"
 version = "^0.1.0"
 
-[dev-dependencies.wke-test]
-path = "wke-test"
+[dependencies.wke-main]
+path = "wke-main"
 version = "^0.1.0"
 
 [dependencies]
 lazy_static = "1.5.0"
 tokio = { version = "^1.39", features = ["full"] }
-
-[dev-dependencies]
-ctor = "0.2.8"

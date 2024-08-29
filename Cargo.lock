@@ -523,8 +523,16 @@ dependencies = [
  "ctor",
  "lazy_static",
  "tokio",
+ "wke-main",
  "wke-sys",
- "wke-test",
+]
+
+[[package]]
+name = "wke-main"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -534,13 +542,4 @@ dependencies = [
  "bindgen",
  "cc",
  "libc",
-]
-
-[[package]]
-name = "wke-test"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]

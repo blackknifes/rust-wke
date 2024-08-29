@@ -17,7 +17,7 @@ impl StdError {
 
 #[derive(Debug)]
 pub enum Error {
-    Other(Box<dyn std::error::Error>),
+    Other(Box<dyn std::error::Error + Send + 'static>),
     StdError(String),
     TypeMismatch(String),
     Inited,
@@ -38,7 +38,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 impl<ERR> From<ERR> for Error
 where
-    ERR: std::error::Error + 'static,
+    ERR: std::error::Error + Send + 'static,
 {
     fn from(value: ERR) -> Self {
         Error::other(value)
@@ -66,7 +66,7 @@ impl Error {
 
     pub fn other<ERR>(err: ERR) -> Self
     where
-        ERR: std::error::Error + 'static,
+        ERR: std::error::Error + Send + 'static,
     {
         return Self::Other(Box::new(err));
     }

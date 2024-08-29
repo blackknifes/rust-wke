@@ -1,4 +1,4 @@
-use super::common::{Size, UserValue};
+use super::common::{InvokeFuture, Size, UserValue};
 use super::webframe::WebFrame;
 use super::{common::Rect, Proxy};
 use crate::error::{Error, Result};
@@ -39,6 +39,7 @@ use wke_sys::{
     wkeSetZoomFactor, wkeShowDevtools, wkeShowWindow, wkeSleep, wkeStopLoading, wkeUnlockViewDC,
     wkeVisitAllCookie, wkeWake, wkeWebFrameGetMainFrame, wkeWebView, wkeWebViewName, HWND,
 };
+mod extern_c;
 
 pub enum DebugConfig {
     ///开启开发者工具，此时param要填写开发者工具的资源路径，如file:///c:/miniblink-release/front_end/inspector.html。注意param此时必须是utf8编码
@@ -444,11 +445,17 @@ impl WebView {
         unsafe { from_cstr_ptr(wkeGetUserAgent.unwrap()(self.webview)) }
     }
 
-    pub fn show_devtools(&self, path: &str) -> Result<()> {
+    pub fn show_devtools(&self, path: &str) -> InvokeFuture<Result<WebView>> {
         unsafe {
             let path_u16 = to_cstr16_ptr(path);
-            wkeShowDevtools.unwrap()(self.webview, (&path_u16).as_ptr(), None, null_mut());
-            Ok(())
+            let future = InvokeFuture::new();
+            wkeShowDevtools.unwrap()(
+                self.webview,
+                (&path_u16).as_ptr(),
+                Some(extern_c::on_show_dev_tools),
+                future.into_raw(),
+            );
+            future
         }
     }
 
@@ -742,6 +749,7 @@ pub struct DefaultPrinterSettings {
 }
 
 impl DefaultPrinterSettings {
+    #[allow(dead_code)]
     pub(crate) fn into_wke(&self) -> wkeDefaultPrinterSettings {
         wkeDefaultPrinterSettings {
             structSize: std::mem::size_of::<wkeDefaultPrinterSettings>() as i32,

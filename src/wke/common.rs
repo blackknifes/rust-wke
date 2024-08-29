@@ -4,7 +4,10 @@ use crate::{
 };
 use std::{
     any::TypeId,
+    cell::RefCell,
+    rc::Rc,
     sync::{Arc, RwLockReadGuard, RwLockWriteGuard},
+    task::Waker,
 };
 use wke_sys::{
     wkeRect, wkeUtilBase64Decode, wkeUtilBase64Encode, wkeUtilDecodeURLEscape,
@@ -112,12 +115,18 @@ impl<T: 'static> UserValue<T> {
     }
 
     pub fn read(&'static self) -> Result<RwLockReadGuard<T>> {
-        let val = self.value.read().map_err(Error::other)?;
+        let val = self
+            .value
+            .read()
+            .map_err(|_| Error::msg("uesr value read lock failed"))?;
         Ok(val)
     }
 
     pub fn write(&'static self) -> Result<RwLockWriteGuard<T>> {
-        let val = self.value.write().map_err(Error::other)?;
+        let val = self
+            .value
+            .write()
+            .map_err(|_| Error::msg("uesr value write lock failed"))?;
         Ok(val)
     }
 
@@ -145,5 +154,51 @@ impl<T: 'static> UserValue<T> {
 
             Ok(arc)
         }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct InvokeFutureInner<T: Unpin> {
+    pub(crate) value: Option<T>,
+    pub(crate) waker: Option<Waker>,
+}
+
+impl<T: Unpin> InvokeFutureInner<T> {
+    pub(crate) fn ready<PTR>(&mut self, value: T) {
+        self.value.replace(value);
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct InvokeFuture<T: Unpin>(pub(crate) Rc<RefCell<InvokeFutureInner<T>>>);
+
+impl<T: Unpin> std::future::Future for InvokeFuture<T> {
+    type Output = T;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let mut self_mut = self.get_mut().0.borrow_mut();
+
+        if let Some(value) = self_mut.value.take() {
+            return std::task::Poll::Ready(value);
+        } else {
+            self_mut.waker.replace(cx.waker().clone());
+        }
+        return std::task::Poll::Pending;
+    }
+}
+
+impl<T: Unpin> InvokeFuture<T> {
+    pub(crate) unsafe fn from_raw<PTR>(ptr: *const PTR) -> Rc<RefCell<InvokeFuture<T>>> {
+        Rc::from_raw(ptr as *const InvokeFuture<T>)
+    }
+
+    pub(crate) fn into_raw<PTR>(&self) -> *mut PTR {
+        Rc::into_raw(self.0.clone()) as *mut PTR
     }
 }
