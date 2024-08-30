@@ -1,9 +1,9 @@
 pub mod common;
 pub mod delegate;
 pub mod javascript;
+pub mod net;
 pub mod webframe;
 pub mod webview;
-pub mod net;
 pub use wke_main::main;
 
 use crate::{
@@ -210,6 +210,17 @@ pub fn enable_high_dpi_support() {
     unsafe { wkeEnableHighDPISupport.unwrap()() }
 }
 
+#[cfg(test)]
+pub fn report() -> String {
+    use wke_sys::{wkeReport, wkeReportFree};
+
+    unsafe {
+        let report = from_cstr_ptr(wkeReport()).unwrap();
+        wkeReportFree();
+        report
+    }
+}
+
 // pub enum WkeSeekOrigin {
 //     Current,
 //     Begin,
@@ -248,4 +259,3 @@ pub fn enable_high_dpi_support() {
 //         );
 //     }
 // }
-

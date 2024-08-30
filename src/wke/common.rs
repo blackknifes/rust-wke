@@ -16,28 +16,28 @@ use wke_sys::{
 
 pub fn base64_encode(str: &str) -> Result<String> {
     unsafe {
-        let encoded = wkeUtilBase64Encode.unwrap()(to_cstr_ptr(str));
+        let encoded = wkeUtilBase64Encode.unwrap()(to_cstr_ptr(str)?.to_utf8());
         from_cstr_ptr(encoded)
     }
 }
 
 pub fn base64_decode(str: &str) -> Result<String> {
     unsafe {
-        let encoded = wkeUtilBase64Decode.unwrap()(to_cstr_ptr(str));
+        let encoded = wkeUtilBase64Decode.unwrap()(to_cstr_ptr(str)?.to_utf8());
         from_cstr_ptr(encoded)
     }
 }
 
 pub fn url_encode(str: &str) -> Result<String> {
     unsafe {
-        let encoded = wkeUtilEncodeURLEscape.unwrap()(to_cstr_ptr(str));
+        let encoded = wkeUtilEncodeURLEscape.unwrap()(to_cstr_ptr(str)?.to_utf8());
         from_cstr_ptr(encoded)
     }
 }
 
 pub fn url_decode(str: &str) -> Result<String> {
     unsafe {
-        let encoded = wkeUtilDecodeURLEscape.unwrap()(to_cstr_ptr(str));
+        let encoded = wkeUtilDecodeURLEscape.unwrap()(to_cstr_ptr(str)?.to_utf8());
         from_cstr_ptr(encoded)
     }
 }

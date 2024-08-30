@@ -1,71 +1,122 @@
-#[allow(unused_macros)]
-macro_rules! DefineMulticastDelegateImpl {
-    ($name:ident, ($($param_name:ident: $param_type:ty),*), $traits: expr) => {
-        #[derive(Default)]
-        pub struct $name {
-            callbacks: Vec<Box<dyn Fn($($param_type),*) -> anyhow::Result<()> + $traits>>
-        }
-
-        impl $name {
-            pub fn bind<FN>(&mut self, func: FN) -> &mut Self
-            where
-                FN: Fn($($param_type), *) -> anyhow::Result<()> + $traits,
-            {
-                self.callbacks.push(Box::new(func));
-                return self;
-            }
-
-            pub fn emit(&self, $($param_name: $param_type),*) -> anyhow::Result<()>
-            {
-                if self.callbacks.len() == 1 {
-                    if let Some(callback) = self.callbacks.get(0) {
-                        return callback($($param_name), *);
-                    }
-
-                    return anyhow::Ok(());
-                }
-
-                for callback in self.callbacks.iter() {
-                    callback($($param_name.clone()), *)?;
-                }
-                return anyhow::Ok(());
-            }
-        }
-    };
+pub trait IntoDelegateParam<'a, DEST> {
+    fn into_param(&'a self) -> DEST;
 }
 
+impl<'a, DEST> IntoDelegateParam<'a, DEST> for DEST
+where
+    DEST: Clone,
+{
+    fn into_param(&'a self) -> DEST {
+        self.clone()
+    }
+}
+
+impl<'life0, 'life1, DEST> IntoDelegateParam<'life0, &'life1 DEST> for DEST
+where
+    'life0: 'life1,
+{
+    fn into_param(&'life0 self) -> &'life1 DEST {
+        self
+    }
+}
+
+pub enum Callback<FNONCE, FN> {
+    Once(Box<FNONCE>),
+    Func(Box<FN>),
+}
 
 #[macro_export]
 macro_rules! DefineMulticastDelegate {
-    ($name:ident, ($($param_name:ident: $param_type:ty),*)) => {
+    //同步委托
+    ($name:ident, ($($param_name:ident: $param_type:ty),*) -> () $(, $trait1:ident $(+ $traits:ident)*)? ) => {
+        DefineMulticastDelegate!($name, ($($param_name: $param_type),*) $(, $trait1 $(+ $traits)*)?);
+    };
+
+    //同步委托
+    ($name:ident, ($($param_name:ident: $param_type:ty),*) $(,$trait1:ident $(+ $traits:ident)*)? ) => {
         #[derive(Default)]
         pub struct $name {
-            callbacks: Vec<Box<dyn Fn($($param_type),*) ->  anyhow::Result<()> + Send + Sync + 'static>>
+            sequence: usize,
+            callbacks: std::collections::BTreeMap<usize, Box<
+                dyn Fn($($param_type),*) ->
+                    $crate::error::Result<()> + 'static $(+ $trait1 $(+ $traits)*)?
+            >>
         }
 
         impl $name {
-            pub fn bind<FN>(&mut self, func: FN) -> &mut Self
+            pub fn add<FN>(&mut self, func: FN) -> usize
             where
-                FN: Fn($($param_type), *) -> anyhow::Result<()> + Send + Sync + 'static,
+                FN: Fn($($param_type), *) ->
+                    $crate::error::Result<()> + 'static $(+ $trait1 $(+ $traits)*)?,
             {
-                self.callbacks.push(Box::new(func));
-                return self;
+                self.sequence = self.sequence + 1;
+                let id = self.sequence;
+                self.callbacks.insert(id, Box::new(func));
+                return id;
             }
 
-            pub fn emit(&self, $($param_name: $param_type),*) -> anyhow::Result<()>
+            pub fn remove(&mut self, id: usize)
             {
-                if self.callbacks.len() == 1 {
-                    if let Some(callback) = self.callbacks.get(0) {
-                        return callback($($param_name), *);
+                self.callbacks.remove(&id);
+            }
+
+            pub fn emit(&self, $($param_name: $param_type),*)
+            {
+                for callback in self.callbacks.values() {
+                    if let Err(err) = callback($($param_name.into_param()), *) {
+                        log::error!("emit failed: {}", err);
                     }
-
-                    return anyhow::Ok(());
                 }
+            }
+        }
+    };
 
-                for callback in self.callbacks.iter() {
-                    callback($($param_name.clone()), *)?;
+
+    //异步委托
+    ($name:ident, async ($($param_name:ident: $param_type:ty),*) -> () $(, $trait1:ident $(+ $traits:ident)*)? ) => {
+        DefineMulticastDelegate!($name, async ($($param_name: $param_type),*) $(, $trait1 $(+ $traits)*)?);
+    };
+    //异步委托
+    ($name:ident, async ($($param_name:ident: $param_type:ty),*) $(,$trait1:ident $(+ $traits:ident)*)? ) => {
+        #[derive(Default)]
+        pub struct $name {
+            sequence: usize,
+            callbacks: std::collections::BTreeMap<usize,
+                Box<dyn Fn($($param_type),*) ->
+                    std::pin::Pin<Box<
+                        dyn std::future::Future<Output = $crate::error::Result<()>> + 'static $(+ $trait1 $(+ $traits)*)?
+                    >> + 'static $(+ $trait1 $(+ $traits)*)?
+                >
+            >
+        }
+
+        impl $name {
+            pub fn add<FN, FUT>(&mut self, func: FN) -> usize
+            where
+                FUT: std::future::Future<Output = $crate::error::Result<()>> + 'static $(+ $trait1 $(+ $traits)*)?,
+                FN: Fn($($param_type), *) -> FUT + 'static $(+ $trait1 $(+ $traits)*)?,
+            {
+                self.sequence = self.sequence + 1;
+                let id = self.sequence;
+                self.callbacks.insert(id, Box::new(move |$($param_name)*| {
+                    let fut = func($($param_name)*);
+                    Box::pin(fut)
+                }));
+                return id;
+            }
+
+            pub fn remove(&mut self, id: usize)
+            {
+                self.callbacks.remove(&id);
+            }
+
+            pub async fn emit(&self, $($param_name: $param_type),*)
+            {
+                for callback in self.callbacks.values() {
+                    if let Err(err) = callback($($param_name.into_param()), *).await {
+                        log::error!("emit failed: {}", err);
+                    }
                 }
-                return anyhow::Ok(());
             }
         }
     };

@@ -21,3 +21,7 @@ libc = "^0.2"
 [build-dependencies]
 bindgen = "^0.70"
 cc = "1.1.14"
+
+[features]
+default = ["enable_report"]
+enable_report = []

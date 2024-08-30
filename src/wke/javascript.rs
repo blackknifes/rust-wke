@@ -44,7 +44,10 @@ impl ExecState {
             if webview.is_null() {
                 return None;
             }
-            return Some(WebView::from_native(webview));
+            match WebView::from_native(webview) {
+                Ok(webview) => Some(webview),
+                Err(_) => None,
+            }
         }
     }
 
@@ -52,11 +55,11 @@ impl ExecState {
         unsafe { !jsGetLastErrorIfException.unwrap()(self.state).is_null() }
     }
 
-    pub fn eval(&self, script: &str) -> JsValue {
+    pub fn eval(&self, script: &str) -> Result<JsValue> {
         unsafe {
-            let value = jsEval.unwrap()(self.state, to_cstr_ptr(script));
+            let value = jsEval.unwrap()(self.state, to_cstr_ptr(script)?.to_utf8());
 
-            JsValue { value }
+            Ok(JsValue { value })
         }
     }
 
@@ -86,8 +89,13 @@ impl JsValue {
         unsafe { Self::from_native(jsDouble.unwrap()(value)) }
     }
 
-    pub fn from_str(state: &ExecState, str: &str) -> Self {
-        unsafe { Self::from_native(jsString.unwrap()(state.state, to_cstr_ptr(str))) }
+    pub fn from_str(state: &ExecState, str: &str) -> Result<Self> {
+        unsafe {
+            Ok(Self::from_native(jsString.unwrap()(
+                state.state,
+                to_cstr_ptr(str)?.to_utf8(),
+            )))
+        }
     }
 
     pub fn from_data(state: &ExecState, data: &[u8]) -> Self {
@@ -153,6 +161,7 @@ impl JsValue {
     }
 
     #[allow(non_upper_case_globals)]
+    #[allow(non_snake_case)]
     pub fn get_type(&self) -> JsType {
         unsafe {
             match jsTypeOf.unwrap()(self.value) {
@@ -225,18 +234,22 @@ impl JsValue {
         }
     }
 
-    pub fn set(&self, state: &ExecState, name: &str, value: &JsValue) {
+    pub fn set(&self, state: &ExecState, name: &str, value: &JsValue) -> Result<()> {
         unsafe {
-            let name = to_cstr_ptr(name);
-            jsSet.unwrap()(state.state, self.value, name, value.value);
+            jsSet.unwrap()(
+                state.state,
+                self.value,
+                to_cstr_ptr(name)?.to_utf8(),
+                value.value,
+            );
+            Ok(())
         }
     }
 
-    pub fn get(&self, state: &ExecState, name: &str) -> JsValue {
+    pub fn get(&self, state: &ExecState, name: &str) -> Result<JsValue> {
         unsafe {
-            let name = to_cstr_ptr(name);
-            let value = jsGet.unwrap()(state.state, self.value, name);
-            JsValue { value }
+            let value = jsGet.unwrap()(state.state, self.value, to_cstr_ptr(name)?.to_utf8());
+            Ok(JsValue { value })
         }
     }
 

@@ -522,6 +522,7 @@ version = "0.1.0"
 dependencies = [
  "ctor",
  "lazy_static",
+ "log",
  "tokio",
  "wke-main",
  "wke-sys",

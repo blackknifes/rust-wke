@@ -3,12 +3,53 @@ use super::webframe::WebFrame;
 use super::{common::Rect, Proxy};
 use crate::error::{Error, Result};
 use crate::utils::{from_bool_int, from_cstr_ptr, to_bool_int, to_cstr16_ptr, to_cstr_ptr};
+use crate::DefineMulticastDelegate;
 use extern_c::{find_cookie_on_visit_all_cookie, FindCookie};
+use std::any::Any;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::c_void;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::{ffi::CStr, ptr::null_mut};
+use tokio::sync::mpsc::error;
 use wke_sys::{
-    _wkeCookieCommand_wkeCookieCommandClearAllCookies, _wkeCookieCommand_wkeCookieCommandClearSessionCookies, _wkeCookieCommand_wkeCookieCommandFlushCookiesToFile, _wkeCookieCommand_wkeCookieCommandReloadCookiesFromFile, _wkeMenuItemId_kWkeMenuCopyImageId, _wkeMenuItemId_kWkeMenuCutId, _wkeMenuItemId_kWkeMenuGoBackId, _wkeMenuItemId_kWkeMenuGoForwardId, _wkeMenuItemId_kWkeMenuInspectElementAtId, _wkeMenuItemId_kWkeMenuPasteId, _wkeMenuItemId_kWkeMenuPrintId, _wkeMenuItemId_kWkeMenuReloadId, _wkeMenuItemId_kWkeMenuSelectedAllId, _wkeMenuItemId_kWkeMenuSelectedTextId, _wkeMenuItemId_kWkeMenuUndoId, _wkeWindowType_WKE_WINDOW_TYPE_POPUP, wkeAddPluginDirectory, wkeCanGoBack, wkeCanGoForward, wkeClearCookie, wkeCreateWebWindow, wkeDefaultPrinterSettings, wkeDestroyWebView, wkeEditorCopy, wkeEditorCut, wkeEditorDelete, wkeEditorPaste, wkeEditorRedo, wkeEditorSelectAll, wkeEditorUnSelect, wkeEditorUndo, wkeGC, wkeGetCaretRect, wkeGetContentHeight, wkeGetContentWidth, wkeGetCookie, wkeGetCursorInfoType, wkeGetHeight, wkeGetHostHWND, wkeGetMediaVolume, wkeGetNavigateIndex, wkeGetSource, wkeGetTitle, wkeGetUserAgent, wkeGetUserKeyValue, wkeGetWebViewForCurrentContext, wkeGetWidth, wkeGetZoomFactor, wkeGoBack, wkeGoForward, wkeGoToIndex, wkeGoToOffset, wkeIsAwake, wkeIsCookieEnabled, wkeIsDocumentReady, wkeIsLoadComplete, wkeIsLoadFailed, wkeIsLoaded, wkeIsLoading, wkeIsLoadingCompleted, wkeIsLoadingFailed, wkeIsLoadingSucceeded, wkeIsMainFrame, wkeIsTransparent, wkeIsWebviewValid, wkeKillFocus, wkeLoadHTML, wkeLoadHtmlWithBaseUrl, wkeLoadURLW, wkeMoveToCenter, wkeMoveWindow, wkeNavigateAtIndex, wkeOnLoadUrlBegin, wkePerformCookieCommand, wkePostURL, wkeReload, wkeResize, wkeSetContextMenuEnabled, wkeSetContextMenuItemShow, wkeSetCookie, wkeSetCookieEnabled, wkeSetCookieJarFullPath, wkeSetCookieJarPath, wkeSetCspCheckEnable, wkeSetDebugConfig, wkeSetDragDropEnable, wkeSetDragEnable, wkeSetEditable, wkeSetFocus, wkeSetHandle, wkeSetHandleOffset, wkeSetHeadlessEnabled, wkeSetLanguage, wkeSetLocalStorageFullPath, wkeSetMediaVolume, wkeSetMemoryCacheEnable, wkeSetMouseEnabled, wkeSetNavigationToNewWindowEnable, wkeSetNpapiPluginsEnabled, wkeSetResourceGc, wkeSetSystemTouchEnabled, wkeSetTouchEnabled, wkeSetTransparent, wkeSetUserAgent, wkeSetUserKeyValue, wkeSetViewProxy, wkeSetWebViewName, wkeSetWindowTitle, wkeSetZoomFactor, wkeShowDevtools, wkeShowWindow, wkeSleep, wkeStopLoading, wkeUnlockViewDC, wkeVisitAllCookie, wkeWake, wkeWebFrameGetMainFrame, wkeWebView, wkeWebViewName, HWND
+    _wkeCookieCommand_wkeCookieCommandClearAllCookies,
+    _wkeCookieCommand_wkeCookieCommandClearSessionCookies,
+    _wkeCookieCommand_wkeCookieCommandFlushCookiesToFile,
+    _wkeCookieCommand_wkeCookieCommandReloadCookiesFromFile, _wkeMenuItemId_kWkeMenuCopyImageId,
+    _wkeMenuItemId_kWkeMenuCutId, _wkeMenuItemId_kWkeMenuGoBackId,
+    _wkeMenuItemId_kWkeMenuGoForwardId, _wkeMenuItemId_kWkeMenuInspectElementAtId,
+    _wkeMenuItemId_kWkeMenuPasteId, _wkeMenuItemId_kWkeMenuPrintId,
+    _wkeMenuItemId_kWkeMenuReloadId, _wkeMenuItemId_kWkeMenuSelectedAllId,
+    _wkeMenuItemId_kWkeMenuSelectedTextId, _wkeMenuItemId_kWkeMenuUndoId,
+    _wkeNavigationType_WKE_NAVIGATION_TYPE_BACKFORWARD,
+    _wkeNavigationType_WKE_NAVIGATION_TYPE_FORMRESUBMITT,
+    _wkeNavigationType_WKE_NAVIGATION_TYPE_FORMSUBMITTE,
+    _wkeNavigationType_WKE_NAVIGATION_TYPE_LINKCLICK, _wkeNavigationType_WKE_NAVIGATION_TYPE_OTHER,
+    _wkeNavigationType_WKE_NAVIGATION_TYPE_RELOAD, _wkeWindowType_WKE_WINDOW_TYPE_POPUP,
+    wkeAddPluginDirectory, wkeCanGoBack, wkeCanGoForward, wkeClearCookie, wkeCreateWebWindow,
+    wkeDefaultPrinterSettings, wkeDestroyWebView, wkeEditorCopy, wkeEditorCut, wkeEditorDelete,
+    wkeEditorPaste, wkeEditorRedo, wkeEditorSelectAll, wkeEditorUnSelect, wkeEditorUndo, wkeGC,
+    wkeGetCaretRect, wkeGetContentHeight, wkeGetContentWidth, wkeGetCookie, wkeGetCursorInfoType,
+    wkeGetHeight, wkeGetHostHWND, wkeGetMediaVolume, wkeGetNavigateIndex, wkeGetSource,
+    wkeGetTitle, wkeGetUserAgent, wkeGetUserKeyValue, wkeGetWebViewForCurrentContext, wkeGetWidth,
+    wkeGetZoomFactor, wkeGoBack, wkeGoForward, wkeGoToIndex, wkeGoToOffset, wkeIsAwake,
+    wkeIsCookieEnabled, wkeIsDocumentReady, wkeIsLoadComplete, wkeIsLoadFailed, wkeIsLoaded,
+    wkeIsLoading, wkeIsLoadingCompleted, wkeIsLoadingFailed, wkeIsLoadingSucceeded, wkeIsMainFrame,
+    wkeIsTransparent, wkeIsWebviewValid, wkeKillFocus, wkeLoadHTML, wkeLoadHtmlWithBaseUrl,
+    wkeLoadURLW, wkeMoveToCenter, wkeMoveWindow, wkeNavigateAtIndex, wkeOnLoadUrlBegin,
+    wkeOnWindowDestroy, wkePerformCookieCommand, wkePostURL, wkeReload, wkeResize,
+    wkeSetContextMenuEnabled, wkeSetContextMenuItemShow, wkeSetCookie, wkeSetCookieEnabled,
+    wkeSetCookieJarFullPath, wkeSetCookieJarPath, wkeSetCspCheckEnable, wkeSetDebugConfig,
+    wkeSetDragDropEnable, wkeSetDragEnable, wkeSetEditable, wkeSetFocus, wkeSetHandle,
+    wkeSetHandleOffset, wkeSetHeadlessEnabled, wkeSetLanguage, wkeSetLocalStorageFullPath,
+    wkeSetMediaVolume, wkeSetMemoryCacheEnable, wkeSetMouseEnabled,
+    wkeSetNavigationToNewWindowEnable, wkeSetNpapiPluginsEnabled, wkeSetResourceGc,
+    wkeSetSystemTouchEnabled, wkeSetTouchEnabled, wkeSetTransparent, wkeSetUserAgent,
+    wkeSetUserKeyValue, wkeSetViewProxy, wkeSetWebViewName, wkeSetWindowTitle, wkeSetZoomFactor,
+    wkeShowDevtools, wkeShowWindow, wkeSleep, wkeStopLoading, wkeUnlockViewDC, wkeVisitAllCookie,
+    wkeWake, wkeWebFrameGetMainFrame, wkeWebView, wkeWebViewName, HWND,
 };
 mod extern_c;
 
@@ -74,8 +115,93 @@ pub enum MenuItemId {
     MenuReloadId = _wkeMenuItemId_kWkeMenuReloadId,
 }
 
-pub struct WebView {
+// wkeOnPaintUpdated
+// wkeOnPaintBitUpdated
+
+pub enum DialogType {
+    Alert,
+    Confirm,
+    Prompt,
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavigationType {
+    LinkClick = _wkeNavigationType_WKE_NAVIGATION_TYPE_LINKCLICK,
+    FormSubmit = _wkeNavigationType_WKE_NAVIGATION_TYPE_FORMSUBMITTE,
+    BackForward = _wkeNavigationType_WKE_NAVIGATION_TYPE_BACKFORWARD,
+    Reload = _wkeNavigationType_WKE_NAVIGATION_TYPE_RELOAD,
+    FormreSubmit = _wkeNavigationType_WKE_NAVIGATION_TYPE_FORMRESUBMITT,
+    Other = _wkeNavigationType_WKE_NAVIGATION_TYPE_OTHER,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct WindowFeature {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub menu_bar_visible: bool,
+    pub status_bar_visible: bool,
+    pub tool_bar_visible: bool,
+    pub location_bar_visible: bool,
+    pub scrollbars_visible: bool,
+    pub resizable: bool,
+    pub fullscreen: bool,
+}
+
+// pub const _wkeLoadingResult_WKE_LOADING_SUCCEEDED: _wkeLoadingResult = 0;
+// pub const _wkeLoadingResult_WKE_LOADING_FAILED: _wkeLoadingResult = 1;
+// pub const _wkeLoadingResult_WKE_LOADING_CANCELED: _wkeLoadingResult = 2;
+#[derive(Debug, Clone)]
+pub enum LoadingResult {
+    Succeeded,
+    Failed(String),
+    Cancelled,
+}
+
+DefineMulticastDelegate!(WebViewDestroyDelegate, ());
+DefineMulticastDelegate!(WebViewCaretChangedDelegate, (rc: Rect)); //wkeOnCaretChanged
+DefineMulticastDelegate!(WebViewMouseOverUrlChangedDelegate, (url: String)); //wkeOnMouseOverUrlChanged
+DefineMulticastDelegate!(WebViewTitleChangedDelegate, (title: String)); // wkeOnTitleChanged
+DefineMulticastDelegate!(WebViewUrlChangedDelegate, (url: String)); // wkeOnURLChanged
+DefineMulticastDelegate!(WebViewFrameUrlChangedDelegate, (frame: WebFrame, url: String)); // wkeOnURLChanged2
+DefineMulticastDelegate!(WebViewDialogDelegate, (dialog: DialogType, message: String)); // wkeOnAlertBox, wkeOnConfirmBox, wkeOnPromptBox
+DefineMulticastDelegate!(WebViewNavigationDelegate, (navigation: NavigationType, url: String)); // wkeOnNavigation
+DefineMulticastDelegate!(WebViewCreateViewDelegate, (navigation: NavigationType, url: String, feature: WindowFeature)); // wkeOnCreateView
+DefineMulticastDelegate!(WebViewDocumentReadyDelegate, ()); // wkeOnDocumentReady
+DefineMulticastDelegate!(WebViewFrameDocumentReadyDelegate, (frame: WebFrame)); // wkeOnDocumentReady2
+DefineMulticastDelegate!(WebViewLoadingFinishDelegate, (url: String, result: LoadingResult)); // wkeOnLoadingFinish
+// DefineMulticastDelegate!(WebViewDownloadDelegate, (url: String, result: LoadingResult)); // wkeOnLoadingFinish
+
+// wkeOnDownload
+// wkeOnDownload2
+// wkeOnConsole
+// wkeOnLoadUrlBegin
+// wkeOnLoadUrlEnd
+// wkeOnLoadUrlHeadersReceived
+// wkeOnLoadUrlFinish
+// wkeOnLoadUrlFail
+// wkeOnDidCreateScriptContext
+// wkeOnWillReleaseScriptContext
+// wkeOnWindowClosing
+// wkeOnWindowDestroy
+// wkeOnDraggableRegionsChanged
+// wkeOnWillMediaLoad
+// wkeOnStartDragging
+// wkeOnPrint
+// wkeOnOtherLoad
+// wkeOnContextMenuItemClick
+// wkeOnPluginFind
+
+pub(crate) struct WebViewInner {
     webview: wkeWebView,
+    values: HashMap<String, Box<dyn Any>>,
+    on_destroy: WebViewDestroyDelegate,
+}
+
+pub struct WebView {
+    inner: Rc<RefCell<WebViewInner>>,
 }
 
 pub struct Cookie {
@@ -151,8 +277,65 @@ extern "C" fn on_visit_all_cookie(
 }
 
 impl WebView {
-    pub(crate) fn from_native(webview: wkeWebView) -> Self {
-        Self { webview }
+    pub(crate) fn get_webview(&self) -> wkeWebView {
+        self.inner.borrow().webview
+    }
+
+    pub(crate) fn attach_webview(webview: wkeWebView) -> Self {
+        unsafe {
+            let inner = Rc::new(RefCell::new(WebViewInner {
+                webview,
+                values: Default::default(),
+                on_destroy: Default::default(),
+            }));
+
+            let ptr = Rc::into_raw(inner.clone());
+
+            wkeSetUserKeyValue.unwrap()(
+                webview,
+                to_cstr_ptr("rust").unwrap().to_utf8(),
+                ptr as *mut c_void,
+            );
+
+            wkeOnWindowDestroy.unwrap()(webview, Some(extern_c::on_window_destroy), null_mut());
+
+            Self { inner }
+        }
+    }
+
+    pub(crate) fn detach_webview(webview: wkeWebView) -> Result<Self> {
+        unsafe {
+            if !from_bool_int(wkeIsWebviewValid.unwrap()(webview)) {
+                return Err(Error::InvalidReference);
+            }
+
+            let ptr = wkeGetUserKeyValue.unwrap()(webview, to_cstr_ptr("rust").unwrap().to_utf8());
+            if ptr.is_null() {
+                return Err(Error::InvalidReference);
+            }
+
+            let inner = Rc::from_raw(ptr as *const RefCell<WebViewInner>);
+
+            Ok(Self { inner })
+        }
+    }
+
+    pub(crate) fn from_native(webview: wkeWebView) -> Result<Self> {
+        unsafe {
+            if !from_bool_int(wkeIsWebviewValid.unwrap()(webview)) {
+                return Err(Error::InvalidReference);
+            }
+
+            let ptr = wkeGetUserKeyValue.unwrap()(webview, to_cstr_ptr("rust").unwrap().to_utf8());
+            if ptr.is_null() {
+                return Err(Error::InvalidReference);
+            }
+
+            Rc::increment_strong_count(ptr);
+            let inner = Rc::from_raw(ptr as *const RefCell<WebViewInner>);
+
+            Ok(Self { inner })
+        }
     }
 
     pub fn popup(rc: Rect) -> Self {
@@ -165,254 +348,273 @@ impl WebView {
                 rc.width,
                 rc.height,
             );
-            return WebView { webview };
+
+            Self::attach_webview(webview)
         }
     }
 
     pub fn from_current_context() -> Option<Self> {
         unsafe {
             let webview = wkeGetWebViewForCurrentContext.unwrap()();
-            if webview != null_mut() {
-                Some(Self { webview })
-            } else {
-                None
-            }
+            // if wkeIsWebviewValid.unwr
+            None
         }
     }
 
     pub fn close(&self) {
         unsafe {
-            wkeDestroyWebView.unwrap()(self.webview);
+            wkeDestroyWebView.unwrap()(self.get_webview());
         }
     }
 
     pub fn is_valid(&self) -> bool {
-        unsafe { from_bool_int(wkeIsWebviewValid.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsWebviewValid.unwrap()(self.get_webview())) }
     }
 
     pub fn get_name(&self) -> Result<String> {
-        unsafe { from_cstr_ptr(wkeWebViewName.unwrap()(self.webview)) }
+        unsafe { from_cstr_ptr(wkeWebViewName.unwrap()(self.get_webview())) }
     }
 
-    pub fn set_name(&self, name: &str) {
-        unsafe { wkeSetWebViewName.unwrap()(self.webview, to_cstr_ptr(name)) }
+    pub fn set_name(&self, name: &str) -> Result<()> {
+        unsafe {
+            wkeSetWebViewName.unwrap()(self.get_webview(), to_cstr_ptr(name)?.to_utf8());
+            Ok(())
+        }
     }
 
     pub fn is_loaded(&self) -> bool {
-        unsafe { from_bool_int(wkeIsLoaded.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsLoaded.unwrap()(self.get_webview())) }
     }
 
     pub fn is_load_failed(&self) -> bool {
-        unsafe { from_bool_int(wkeIsLoadFailed.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsLoadFailed.unwrap()(self.get_webview())) }
     }
 
     pub fn is_load_complete(&self) -> bool {
-        unsafe { from_bool_int(wkeIsLoadComplete.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsLoadComplete.unwrap()(self.get_webview())) }
     }
 
     pub fn is_loading(&self) -> bool {
-        unsafe { from_bool_int(wkeIsLoading.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsLoading.unwrap()(self.get_webview())) }
     }
 
     pub fn is_loading_succeeded(&self) -> bool {
-        unsafe { from_bool_int(wkeIsLoadingSucceeded.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsLoadingSucceeded.unwrap()(self.get_webview())) }
     }
 
     pub fn is_loading_failed(&self) -> bool {
-        unsafe { from_bool_int(wkeIsLoadingFailed.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsLoadingFailed.unwrap()(self.get_webview())) }
     }
 
     pub fn is_loading_completed(&self) -> bool {
-        unsafe { from_bool_int(wkeIsLoadingCompleted.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsLoadingCompleted.unwrap()(self.get_webview())) }
     }
 
     pub fn is_document_ready(&self) -> bool {
-        unsafe { from_bool_int(wkeIsDocumentReady.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsDocumentReady.unwrap()(self.get_webview())) }
     }
 
     pub fn get_source(&self) -> Result<String> {
-        unsafe { from_cstr_ptr(wkeGetSource.unwrap()(self.webview)) }
+        unsafe { from_cstr_ptr(wkeGetSource.unwrap()(self.get_webview())) }
     }
 
     pub fn move_to(&self, rc: Rect) {
         unsafe {
-            wkeMoveWindow.unwrap()(self.webview, rc.x, rc.y, rc.width, rc.height);
+            wkeMoveWindow.unwrap()(self.get_webview(), rc.x, rc.y, rc.width, rc.height);
         }
     }
 
     pub fn move_to_center(&self) {
         unsafe {
-            wkeMoveToCenter.unwrap()(self.webview);
+            wkeMoveToCenter.unwrap()(self.get_webview());
         }
     }
 
     pub fn get_caret_rect(&self) -> Rect {
         unsafe {
-            let rc = wkeGetCaretRect.unwrap()(self.webview);
+            let rc = wkeGetCaretRect.unwrap()(self.get_webview());
             return Rect::from_native(&rc);
         }
     }
 
     pub fn set_media_volume(&self, volume: f32) {
         unsafe {
-            wkeSetMediaVolume.unwrap()(self.webview, volume);
+            wkeSetMediaVolume.unwrap()(self.get_webview(), volume);
         }
     }
 
     pub fn get_media_volume(&self) -> f32 {
-        unsafe { wkeGetMediaVolume.unwrap()(self.webview) }
+        unsafe { wkeGetMediaVolume.unwrap()(self.get_webview()) }
     }
 
     pub fn set_proxy(&self, proxy: Proxy) -> crate::error::Result<()> {
         unsafe {
             let mut wke_proxy = proxy.into_native()?;
-            wkeSetViewProxy.unwrap()(self.webview, &mut wke_proxy);
+            wkeSetViewProxy.unwrap()(self.get_webview(), &mut wke_proxy);
             Ok(())
         }
     }
 
-    pub fn set_debug_config(&self, config: DebugConfig) {
+    pub fn set_debug_config(&self, config: DebugConfig) -> Result<()> {
         unsafe {
             let (debug_str, param) = config.get_native_params();
-            wkeSetDebugConfig.unwrap()(self.webview, to_cstr_ptr(&debug_str), to_cstr_ptr(&param));
+            wkeSetDebugConfig.unwrap()(
+                self.get_webview(),
+                to_cstr_ptr(&debug_str)?.to_utf8(),
+                to_cstr_ptr(&param)?.to_utf8(),
+            );
+            Ok(())
         }
     }
 
     pub fn set_mouse_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetMouseEnabled.unwrap()(self.webview, enable);
+            wkeSetMouseEnabled.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_touch_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetTouchEnabled.unwrap()(self.webview, enable);
+            wkeSetTouchEnabled.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_system_touch_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetSystemTouchEnabled.unwrap()(self.webview, enable);
+            wkeSetSystemTouchEnabled.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_context_menu_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetContextMenuEnabled.unwrap()(self.webview, enable);
+            wkeSetContextMenuEnabled.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_navigation_to_new_window_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetNavigationToNewWindowEnable.unwrap()(self.webview, enable);
+            wkeSetNavigationToNewWindowEnable.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_headless_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetHeadlessEnabled.unwrap()(self.webview, enable);
+            wkeSetHeadlessEnabled.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_drag_drop_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetDragDropEnable.unwrap()(self.webview, enable);
+            wkeSetDragDropEnable.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_drag_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetDragEnable.unwrap()(self.webview, enable);
+            wkeSetDragEnable.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_context_menu_item_show(&self, menu_item_id: MenuItemId, show: bool) {
         unsafe {
-            wkeSetContextMenuItemShow.unwrap()(self.webview, menu_item_id as i32, show);
+            wkeSetContextMenuItemShow.unwrap()(self.get_webview(), menu_item_id as i32, show);
         }
     }
 
-    pub fn set_language(&self, language: &str) {
-        unsafe { wkeSetLanguage.unwrap()(self.webview, to_cstr_ptr(language)) }
+    pub fn set_language(&self, language: &str) -> Result<()> {
+        unsafe {
+            wkeSetLanguage.unwrap()(self.get_webview(), to_cstr_ptr(language)?.to_utf8());
+            Ok(())
+        }
     }
 
     pub fn set_handle(&self, hwnd: HWND) {
         unsafe {
-            wkeSetHandle.unwrap()(self.webview, hwnd);
+            wkeSetHandle.unwrap()(self.get_webview(), hwnd);
         }
     }
 
     pub fn set_handle_offset(&self, x: i32, y: i32) {
         unsafe {
-            wkeSetHandleOffset.unwrap()(self.webview, x, y);
+            wkeSetHandleOffset.unwrap()(self.get_webview(), x, y);
         }
     }
 
     pub fn get_host_hwnd(&self) -> HWND {
         unsafe {
-            return wkeGetHostHWND.unwrap()(self.webview);
+            return wkeGetHostHWND.unwrap()(self.get_webview());
         }
     }
 
     pub fn set_transparent(&self, transparent: bool) {
         unsafe {
-            wkeSetTransparent.unwrap()(self.webview, transparent);
+            wkeSetTransparent.unwrap()(self.get_webview(), transparent);
         }
     }
 
     pub fn set_csp_check_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetCspCheckEnable.unwrap()(self.webview, enable);
+            wkeSetCspCheckEnable.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_npapi_plugins_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetNpapiPluginsEnabled.unwrap()(self.webview, enable);
+            wkeSetNpapiPluginsEnabled.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_memory_cache_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetMemoryCacheEnable.unwrap()(self.webview, enable);
+            wkeSetMemoryCacheEnable.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn set_cookie_enabled(&self, enable: bool) {
         unsafe {
-            wkeSetCookieEnabled.unwrap()(self.webview, enable);
+            wkeSetCookieEnabled.unwrap()(self.get_webview(), enable);
         }
     }
 
     pub fn is_cookie_enabled(&self) -> bool {
-        unsafe { from_bool_int(wkeIsCookieEnabled.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsCookieEnabled.unwrap()(self.get_webview())) }
     }
 
-    pub fn set_cookie(&self, url: &str, cookie: &str) {
-        unsafe { wkeSetCookie.unwrap()(self.webview, to_cstr_ptr(url), to_cstr_ptr(cookie)) }
+    pub fn set_cookie(&self, url: &str, cookie: &str) -> Result<()> {
+        unsafe {
+            wkeSetCookie.unwrap()(
+                self.get_webview(),
+                to_cstr_ptr(url)?.to_utf8(),
+                to_cstr_ptr(cookie)?.to_utf8(),
+            );
+            Ok(())
+        }
     }
 
     pub fn set_cookie_jar_path(&self, path: &str) {
         unsafe {
-            wkeSetCookieJarPath.unwrap()(self.webview, (&to_cstr16_ptr(path)).as_ptr());
+            wkeSetCookieJarPath.unwrap()(self.get_webview(), (&to_cstr16_ptr(path)).as_ptr());
         }
     }
 
     pub fn set_cookie_jar_full_path(&self, path: &str) {
         unsafe {
-            wkeSetCookieJarFullPath.unwrap()(self.webview, (&to_cstr16_ptr(path)).as_ptr());
+            wkeSetCookieJarFullPath.unwrap()(self.get_webview(), (&to_cstr16_ptr(path)).as_ptr());
         }
     }
 
     pub fn set_local_storage_full_path(&self, path: &str) {
         unsafe {
-            wkeSetLocalStorageFullPath.unwrap()(self.webview, (&to_cstr16_ptr(path)).as_ptr());
+            wkeSetLocalStorageFullPath.unwrap()(
+                self.get_webview(),
+                (&to_cstr16_ptr(path)).as_ptr(),
+            );
         }
     }
 
     pub fn get_title(&self) -> Result<String> {
         unsafe {
-            let title = CStr::from_ptr(wkeGetTitle.unwrap()(self.webview))
+            let title = CStr::from_ptr(wkeGetTitle.unwrap()(self.get_webview()))
                 .to_str()
                 .map_err(Error::other)?
                 .to_owned();
@@ -420,8 +622,11 @@ impl WebView {
         }
     }
 
-    pub fn set_title(&self, title: &str) {
-        unsafe { wkeSetWindowTitle.unwrap()(self.webview, to_cstr_ptr(title)) }
+    pub fn set_title(&self, title: &str) -> Result<()> {
+        unsafe {
+            wkeSetWindowTitle.unwrap()(self.get_webview(), to_cstr_ptr(title)?.to_utf8());
+            Ok(())
+        }
     }
 
     pub fn get_url(&self) -> Result<String> {
@@ -432,22 +637,25 @@ impl WebView {
 
     pub fn get_cursor_info_type(&self) -> i32 {
         unsafe {
-            return wkeGetCursorInfoType.unwrap()(self.webview);
+            return wkeGetCursorInfoType.unwrap()(self.get_webview());
         }
     }
 
     pub fn add_plugin_directory(&self, path: &str) {
         unsafe {
-            wkeAddPluginDirectory.unwrap()(self.webview, (&to_cstr16_ptr(path)).as_ptr());
+            wkeAddPluginDirectory.unwrap()(self.get_webview(), (&to_cstr16_ptr(path)).as_ptr());
         }
     }
 
-    pub fn set_user_agent(&self, user_agent: &str) {
-        unsafe { wkeSetUserAgent.unwrap()(self.webview, to_cstr_ptr(user_agent)) }
+    pub fn set_user_agent(&self, user_agent: &str) -> Result<()> {
+        unsafe {
+            wkeSetUserAgent.unwrap()(self.get_webview(), to_cstr_ptr(user_agent)?.to_utf8());
+            Ok(())
+        }
     }
 
     pub fn get_user_agent(&self) -> Result<String> {
-        unsafe { from_cstr_ptr(wkeGetUserAgent.unwrap()(self.webview)) }
+        unsafe { from_cstr_ptr(wkeGetUserAgent.unwrap()(self.get_webview())) }
     }
 
     pub fn show_devtools(&self, path: &str) -> InvokeFuture<Result<WebView>> {
@@ -455,7 +663,7 @@ impl WebView {
             let path_u16 = to_cstr16_ptr(path);
             let future = InvokeFuture::default();
             wkeShowDevtools.unwrap()(
-                self.webview,
+                self.get_webview(),
                 (&path_u16).as_ptr(),
                 Some(extern_c::on_show_dev_tools),
                 future.into_raw(),
@@ -466,43 +674,43 @@ impl WebView {
 
     pub fn set_zoom_factor(&self, factor: f32) {
         unsafe {
-            wkeSetZoomFactor.unwrap()(self.webview, factor);
+            wkeSetZoomFactor.unwrap()(self.get_webview(), factor);
         }
     }
 
     pub fn get_zoom_factor(&self) -> f32 {
-        unsafe { wkeGetZoomFactor.unwrap()(self.webview) }
+        unsafe { wkeGetZoomFactor.unwrap()(self.get_webview()) }
     }
 
     pub fn gc(&self, interval_seconds: i32) {
         unsafe {
-            wkeGC.unwrap()(self.webview, interval_seconds);
+            wkeGC.unwrap()(self.get_webview(), interval_seconds);
         }
     }
 
     pub fn set_resource_gc(&self, interval_seconds: i32) {
         unsafe {
-            wkeSetResourceGc.unwrap()(self.webview, interval_seconds);
+            wkeSetResourceGc.unwrap()(self.get_webview(), interval_seconds);
         }
     }
 
     pub fn can_go_forward(&self) -> bool {
-        unsafe { from_bool_int(wkeCanGoForward.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeCanGoForward.unwrap()(self.get_webview())) }
     }
 
     pub fn can_go_back(&self) -> bool {
-        unsafe { from_bool_int(wkeCanGoBack.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeCanGoBack.unwrap()(self.get_webview())) }
     }
 
     pub fn get_cookie(&self) -> Result<String> {
-        unsafe { from_cstr_ptr(wkeGetCookie.unwrap()(self.webview)) }
+        unsafe { from_cstr_ptr(wkeGetCookie.unwrap()(self.get_webview())) }
     }
 
     pub fn find_cookie(&self, name: &str) -> Option<Cookie> {
         unsafe {
             let mut find_cookie = FindCookie::new(name.to_owned());
             wkeVisitAllCookie.unwrap()(
-                self.webview,
+                self.get_webview(),
                 &mut find_cookie as *mut FindCookie as *mut c_void,
                 Some(find_cookie_on_visit_all_cookie),
             );
@@ -514,179 +722,195 @@ impl WebView {
         unsafe {
             let mut boxed = Box::new(callback);
             let ptr: *mut Box<dyn Fn(Cookie) -> bool> = std::mem::transmute(&mut boxed);
-            wkeVisitAllCookie.unwrap()(self.webview, ptr as *mut c_void, Some(on_visit_all_cookie));
+            wkeVisitAllCookie.unwrap()(
+                self.get_webview(),
+                ptr as *mut c_void,
+                Some(on_visit_all_cookie),
+            );
         }
     }
 
     pub fn clear_cookie(&self) {
         unsafe {
-            wkeClearCookie.unwrap()(self.webview);
+            wkeClearCookie.unwrap()(self.get_webview());
         }
     }
 
     pub fn resize(&self, size: Size) {
-        unsafe { wkeResize.unwrap()(self.webview, size.width, size.height) }
+        unsafe { wkeResize.unwrap()(self.get_webview(), size.width, size.height) }
     }
 
     pub fn get_size(&self) -> Size {
         unsafe {
-            let width = wkeGetWidth.unwrap()(self.webview);
-            let height = wkeGetHeight.unwrap()(self.webview);
+            let width = wkeGetWidth.unwrap()(self.get_webview());
+            let height = wkeGetHeight.unwrap()(self.get_webview());
             Size { width, height }
         }
     }
 
     pub fn go_back(&self) {
         unsafe {
-            wkeGoBack.unwrap()(self.webview);
+            wkeGoBack.unwrap()(self.get_webview());
         }
     }
 
     pub fn go_forward(&self) {
         unsafe {
-            wkeGoForward.unwrap()(self.webview);
+            wkeGoForward.unwrap()(self.get_webview());
         }
     }
 
     pub fn navigate_at_index(&self, index: i32) {
         unsafe {
-            wkeNavigateAtIndex.unwrap()(self.webview, index);
+            wkeNavigateAtIndex.unwrap()(self.get_webview(), index);
         }
     }
 
     pub fn get_navigate_index(&self) -> i32 {
-        unsafe { wkeGetNavigateIndex.unwrap()(self.webview) }
+        unsafe { wkeGetNavigateIndex.unwrap()(self.get_webview()) }
     }
 
     pub fn stop_loading(&self) {
         unsafe {
-            wkeStopLoading.unwrap()(self.webview);
+            wkeStopLoading.unwrap()(self.get_webview());
         }
     }
 
     pub fn reload(&self) {
         unsafe {
-            wkeReload.unwrap()(self.webview);
+            wkeReload.unwrap()(self.get_webview());
         }
     }
 
     pub fn perform_cookie_command(&self, command: CookieCommand) {
         unsafe {
-            wkePerformCookieCommand.unwrap()(self.webview, command as i32);
+            wkePerformCookieCommand.unwrap()(self.get_webview(), command as i32);
         }
     }
 
     pub fn select_all(&self) {
         unsafe {
-            wkeEditorSelectAll.unwrap()(self.webview);
+            wkeEditorSelectAll.unwrap()(self.get_webview());
         }
     }
 
     pub fn unselect(&self) {
         unsafe {
-            wkeEditorUnSelect.unwrap()(self.webview);
+            wkeEditorUnSelect.unwrap()(self.get_webview());
         }
     }
 
     pub fn copy(&self) {
         unsafe {
-            wkeEditorCopy.unwrap()(self.webview);
+            wkeEditorCopy.unwrap()(self.get_webview());
         }
     }
 
     pub fn cut(&self) {
         unsafe {
-            wkeEditorCut.unwrap()(self.webview);
+            wkeEditorCut.unwrap()(self.get_webview());
         }
     }
     pub fn paste(&self) {
         unsafe {
-            wkeEditorPaste.unwrap()(self.webview);
+            wkeEditorPaste.unwrap()(self.get_webview());
         }
     }
     pub fn delete(&self) {
         unsafe {
-            wkeEditorDelete.unwrap()(self.webview);
+            wkeEditorDelete.unwrap()(self.get_webview());
         }
     }
     pub fn undo(&self) {
         unsafe {
-            wkeEditorUndo.unwrap()(self.webview);
+            wkeEditorUndo.unwrap()(self.get_webview());
         }
     }
 
     pub fn redo(&self) {
         unsafe {
-            wkeEditorRedo.unwrap()(self.webview);
+            wkeEditorRedo.unwrap()(self.get_webview());
         }
     }
 
     pub fn set_focus(&self) {
         unsafe {
-            wkeSetFocus.unwrap()(self.webview);
+            wkeSetFocus.unwrap()(self.get_webview());
         }
     }
 
     pub fn kill_focus(&self) {
         unsafe {
-            wkeKillFocus.unwrap()(self.webview);
+            wkeKillFocus.unwrap()(self.get_webview());
         }
     }
 
     pub fn show(&self) {
         unsafe {
-            wkeShowWindow.unwrap()(self.webview, true);
+            wkeShowWindow.unwrap()(self.get_webview(), true);
         }
     }
 
     pub fn hide(&self) {
         unsafe {
-            wkeShowWindow.unwrap()(self.webview, false);
+            wkeShowWindow.unwrap()(self.get_webview(), false);
         }
     }
 
-    pub fn load_html(&self, html: &str) {
-        unsafe { wkeLoadHTML.unwrap()(self.webview, to_cstr_ptr(html)) }
+    pub fn load_html(&self, html: &str) -> Result<()> {
+        unsafe {
+            wkeLoadHTML.unwrap()(self.get_webview(), to_cstr_ptr(html)?.to_utf8());
+            Ok(())
+        }
     }
 
     pub fn load_url(&self, url: &str) {
         unsafe {
             let url = to_cstr16_ptr(url);
-            wkeLoadURLW.unwrap()(self.webview, (&url).as_ptr());
+            wkeLoadURLW.unwrap()(self.get_webview(), (&url).as_ptr());
         }
     }
 
-    pub fn load_html_with_base_url(&self, html: &str, base_url: &str) {
+    pub fn load_html_with_base_url(&self, html: &str, base_url: &str) -> Result<()> {
         unsafe {
-            wkeLoadHtmlWithBaseUrl.unwrap()(self.webview, to_cstr_ptr(html), to_cstr_ptr(base_url))
+            wkeLoadHtmlWithBaseUrl.unwrap()(
+                self.get_webview(),
+                to_cstr_ptr(html)?.to_utf8(),
+                to_cstr_ptr(base_url)?.to_utf8(),
+            );
+            Ok(())
         }
     }
 
-    pub fn post_url(&self, url: &str, post_data: &str) {
+    pub fn post_url(&self, url: &str, post_data: &str) -> Result<()> {
         unsafe {
-            let url_c = to_cstr_ptr(url);
-            let post_data_c = to_cstr_ptr(post_data);
-            wkePostURL.unwrap()(self.webview, url_c, post_data_c, post_data.len() as i32);
+            wkePostURL.unwrap()(
+                self.get_webview(),
+                to_cstr_ptr(url)?.to_utf8(),
+                to_cstr_ptr(post_data)?.to_utf8(),
+                post_data.len() as i32,
+            );
+            Ok(())
         }
     }
     pub fn unlock_view_dc(&self) {
         unsafe {
-            wkeUnlockViewDC.unwrap()(self.webview);
+            wkeUnlockViewDC.unwrap()(self.get_webview());
         }
     }
 
     pub fn get_main_frame(&self) -> Option<WebFrame> {
         unsafe {
-            let frame = wkeWebFrameGetMainFrame.unwrap()(self.webview);
+            let frame = wkeWebFrameGetMainFrame.unwrap()(self.get_webview());
             if frame.is_null() {
                 return None;
             }
-            Some(WebFrame::from_native(self.webview, frame))
+            Some(WebFrame::from_native(self.get_webview(), frame))
         }
     }
 
     pub fn is_main(&self, frame: &WebFrame) -> bool {
-        unsafe { from_bool_int(wkeIsMainFrame.unwrap()(self.webview, frame.frame)) }
+        unsafe { from_bool_int(wkeIsMainFrame.unwrap()(self.get_webview(), frame.frame)) }
     }
 
     pub async fn get_content_as_markup(&self) -> String {
@@ -700,68 +924,64 @@ impl WebView {
     pub fn get_content_size(&self) -> Size {
         unsafe {
             Size {
-                width: wkeGetContentWidth.unwrap()(self.webview),
-                height: wkeGetContentHeight.unwrap()(self.webview),
+                width: wkeGetContentWidth.unwrap()(self.get_webview()),
+                height: wkeGetContentHeight.unwrap()(self.get_webview()),
             }
         }
     }
 
-    pub fn set_user_value<T: 'static>(&self, key: &str, value: T) {
+    pub fn set_user_value<T: 'static>(&self, key: &str, value: T) -> Result<()> {
         unsafe {
             let ptr = UserValue::into_raw(UserValue::new(value));
-            wkeSetUserKeyValue.unwrap()(self.webview, to_cstr_ptr(key), ptr as *mut c_void);
+            wkeSetUserKeyValue.unwrap()(
+                self.get_webview(),
+                to_cstr_ptr(key)?.to_utf8(),
+                ptr as *mut c_void,
+            );
+            Ok(())
         }
     }
 
     pub fn get_user_value<T: 'static>(&self, key: &str) -> Result<Arc<UserValue<T>>> {
         unsafe {
-            let ptr = wkeGetUserKeyValue.unwrap()(self.webview, to_cstr_ptr(key));
+            let ptr = wkeGetUserKeyValue.unwrap()(self.get_webview(), to_cstr_ptr(key)?.to_utf8());
             UserValue::from_raw(ptr as *const UserValue<T>)
         }
     }
 
     pub fn go_to_offset(&self, offset: i32) {
         unsafe {
-            wkeGoToOffset.unwrap()(self.webview, offset);
+            wkeGoToOffset.unwrap()(self.get_webview(), offset);
         }
     }
 
     pub fn go_to_index(&self, index: i32) {
         unsafe {
-            wkeGoToIndex.unwrap()(self.webview, index);
+            wkeGoToIndex.unwrap()(self.get_webview(), index);
         }
     }
 
     pub fn set_editable(&self, editable: bool) {
         unsafe {
-            wkeSetEditable.unwrap()(self.webview, editable);
+            wkeSetEditable.unwrap()(self.get_webview(), editable);
         }
     }
 
     pub fn awake(&self) {
-        unsafe { wkeWake.unwrap()(self.webview) }
+        unsafe { wkeWake.unwrap()(self.get_webview()) }
     }
 
     pub fn sleep(&self) {
-        unsafe { wkeSleep.unwrap()(self.webview) }
+        unsafe { wkeSleep.unwrap()(self.get_webview()) }
     }
 
     pub fn is_awake(&self) -> bool {
-        unsafe { from_bool_int(wkeIsAwake.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsAwake.unwrap()(self.get_webview())) }
     }
 
     pub fn is_transparent(&self) -> bool {
-        unsafe { from_bool_int(wkeIsTransparent.unwrap()(self.webview)) }
+        unsafe { from_bool_int(wkeIsTransparent.unwrap()(self.get_webview())) }
     }
-
-    // pub fn on_load_end<FN>(&self)
-    // where
-    //     FN: Fn(),
-    // {
-    //     unsafe {
-    //         wkeOnLoadUrlBegin
-    //     }
-    // }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

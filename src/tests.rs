@@ -54,15 +54,7 @@ async fn test_popup() -> Result<()> {
     let devtools = webview.show_devtools(&DEV_TOOLS_PATH).await?;
     tokio::time::sleep(Duration::from_secs(5)).await;
     devtools.close();
-    tokio::time::sleep(Duration::from_secs(5)).await;
     webview.close();
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    webview.close();
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    webview.close();
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    webview.get_main_frame();
-    println!("valid: {}", webview.is_valid());
     wke::exit();
 
     Ok(())
@@ -74,8 +66,10 @@ fn test_tokio() -> std::result::Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(test)]
 #[wke::main(dll = get_dll_path)]
 async fn main() -> crate::error::Result<()> {
+    // std::fs::write("target/apis.txt", wke::report())?;
     test_popup().await?;
     return Ok(());
 }

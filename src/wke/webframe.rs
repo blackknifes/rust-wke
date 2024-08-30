@@ -108,7 +108,10 @@ impl WebFrame {
         }
     }
 
-    pub fn insert_css_by_frame(&self, css: &str) {
-        unsafe { wkeInsertCSSByFrame.unwrap()(self.webview, self.frame, to_cstr_ptr(css)) }
+    pub fn insert_css_by_frame(&self, css: &str) -> Result<()> {
+        unsafe {
+            wkeInsertCSSByFrame.unwrap()(self.webview, self.frame, to_cstr_ptr(css)?.to_utf8());
+            Ok(())
+        }
     }
 }

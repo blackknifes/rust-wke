@@ -1,3 +1,5 @@
+use std::ptr::null_mut;
+
 use super::{Cookie, WebView};
 use crate::{error::Result, utils::from_cstr_ptr, wke::common::InvokeFuture};
 use wke_sys::wkeWebView;
@@ -54,4 +56,13 @@ pub(crate) extern "C" fn find_cookie_on_visit_all_cookie(
             false
         }
     }
+}
+
+pub(crate) extern "C" fn on_window_destroy(
+    webview: wkeWebView,
+    _param: *mut ::std::os::raw::c_void,
+) {
+    let webview = WebView::detach_webview(webview).unwrap();
+    webview.inner.borrow().on_destroy.emit();
+    webview.inner.borrow_mut().webview = null_mut();
 }
