@@ -1,7 +1,6 @@
-use std::ptr::null_mut;
-
 use super::{Cookie, WebView};
-use crate::{error::Result, utils::from_cstr_ptr, wke::common::InvokeFuture};
+use crate::{common::InvokeFuture, error::Result, utils::from_cstr_ptr};
+use std::ptr::null_mut;
 use wke_sys::wkeWebView;
 
 pub(crate) extern "C" fn on_show_dev_tools(
@@ -63,6 +62,6 @@ pub(crate) extern "C" fn on_window_destroy(
     _param: *mut ::std::os::raw::c_void,
 ) {
     let webview = WebView::detach_webview(webview).unwrap();
-    webview.inner.borrow().on_destroy.emit();
+    webview.inner.borrow().window_destroy_delegate.emit();
     webview.inner.borrow_mut().webview = null_mut();
 }

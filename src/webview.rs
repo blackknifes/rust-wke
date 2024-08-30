@@ -2,6 +2,7 @@ use super::common::{InvokeFuture, Size, UserValue};
 use super::webframe::WebFrame;
 use super::{common::Rect, Proxy};
 use crate::error::{Error, Result};
+use crate::net::{Job, JobBuf};
 use crate::utils::{from_bool_int, from_cstr_ptr, to_bool_int, to_cstr16_ptr, to_cstr_ptr};
 use crate::DefineMulticastDelegate;
 use extern_c::{find_cookie_on_visit_all_cookie, FindCookie};
@@ -12,45 +13,7 @@ use std::ffi::c_void;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::{ffi::CStr, ptr::null_mut};
-use tokio::sync::mpsc::error;
-use wke_sys::{
-    _wkeCookieCommand_wkeCookieCommandClearAllCookies,
-    _wkeCookieCommand_wkeCookieCommandClearSessionCookies,
-    _wkeCookieCommand_wkeCookieCommandFlushCookiesToFile,
-    _wkeCookieCommand_wkeCookieCommandReloadCookiesFromFile, _wkeMenuItemId_kWkeMenuCopyImageId,
-    _wkeMenuItemId_kWkeMenuCutId, _wkeMenuItemId_kWkeMenuGoBackId,
-    _wkeMenuItemId_kWkeMenuGoForwardId, _wkeMenuItemId_kWkeMenuInspectElementAtId,
-    _wkeMenuItemId_kWkeMenuPasteId, _wkeMenuItemId_kWkeMenuPrintId,
-    _wkeMenuItemId_kWkeMenuReloadId, _wkeMenuItemId_kWkeMenuSelectedAllId,
-    _wkeMenuItemId_kWkeMenuSelectedTextId, _wkeMenuItemId_kWkeMenuUndoId,
-    _wkeNavigationType_WKE_NAVIGATION_TYPE_BACKFORWARD,
-    _wkeNavigationType_WKE_NAVIGATION_TYPE_FORMRESUBMITT,
-    _wkeNavigationType_WKE_NAVIGATION_TYPE_FORMSUBMITTE,
-    _wkeNavigationType_WKE_NAVIGATION_TYPE_LINKCLICK, _wkeNavigationType_WKE_NAVIGATION_TYPE_OTHER,
-    _wkeNavigationType_WKE_NAVIGATION_TYPE_RELOAD, _wkeWindowType_WKE_WINDOW_TYPE_POPUP,
-    wkeAddPluginDirectory, wkeCanGoBack, wkeCanGoForward, wkeClearCookie, wkeCreateWebWindow,
-    wkeDefaultPrinterSettings, wkeDestroyWebView, wkeEditorCopy, wkeEditorCut, wkeEditorDelete,
-    wkeEditorPaste, wkeEditorRedo, wkeEditorSelectAll, wkeEditorUnSelect, wkeEditorUndo, wkeGC,
-    wkeGetCaretRect, wkeGetContentHeight, wkeGetContentWidth, wkeGetCookie, wkeGetCursorInfoType,
-    wkeGetHeight, wkeGetHostHWND, wkeGetMediaVolume, wkeGetNavigateIndex, wkeGetSource,
-    wkeGetTitle, wkeGetUserAgent, wkeGetUserKeyValue, wkeGetWebViewForCurrentContext, wkeGetWidth,
-    wkeGetZoomFactor, wkeGoBack, wkeGoForward, wkeGoToIndex, wkeGoToOffset, wkeIsAwake,
-    wkeIsCookieEnabled, wkeIsDocumentReady, wkeIsLoadComplete, wkeIsLoadFailed, wkeIsLoaded,
-    wkeIsLoading, wkeIsLoadingCompleted, wkeIsLoadingFailed, wkeIsLoadingSucceeded, wkeIsMainFrame,
-    wkeIsTransparent, wkeIsWebviewValid, wkeKillFocus, wkeLoadHTML, wkeLoadHtmlWithBaseUrl,
-    wkeLoadURLW, wkeMoveToCenter, wkeMoveWindow, wkeNavigateAtIndex, wkeOnLoadUrlBegin,
-    wkeOnWindowDestroy, wkePerformCookieCommand, wkePostURL, wkeReload, wkeResize,
-    wkeSetContextMenuEnabled, wkeSetContextMenuItemShow, wkeSetCookie, wkeSetCookieEnabled,
-    wkeSetCookieJarFullPath, wkeSetCookieJarPath, wkeSetCspCheckEnable, wkeSetDebugConfig,
-    wkeSetDragDropEnable, wkeSetDragEnable, wkeSetEditable, wkeSetFocus, wkeSetHandle,
-    wkeSetHandleOffset, wkeSetHeadlessEnabled, wkeSetLanguage, wkeSetLocalStorageFullPath,
-    wkeSetMediaVolume, wkeSetMemoryCacheEnable, wkeSetMouseEnabled,
-    wkeSetNavigationToNewWindowEnable, wkeSetNpapiPluginsEnabled, wkeSetResourceGc,
-    wkeSetSystemTouchEnabled, wkeSetTouchEnabled, wkeSetTransparent, wkeSetUserAgent,
-    wkeSetUserKeyValue, wkeSetViewProxy, wkeSetWebViewName, wkeSetWindowTitle, wkeSetZoomFactor,
-    wkeShowDevtools, wkeShowWindow, wkeSleep, wkeStopLoading, wkeUnlockViewDC, wkeVisitAllCookie,
-    wkeWake, wkeWebFrameGetMainFrame, wkeWebView, wkeWebViewName, HWND,
-};
+use wke_sys::*;
 mod extern_c;
 
 pub enum DebugConfig {
@@ -118,6 +81,7 @@ pub enum MenuItemId {
 // wkeOnPaintUpdated
 // wkeOnPaintBitUpdated
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DialogType {
     Alert,
     Confirm,
@@ -160,44 +124,147 @@ pub enum LoadingResult {
     Cancelled,
 }
 
-DefineMulticastDelegate!(WebViewDestroyDelegate, ());
-DefineMulticastDelegate!(WebViewCaretChangedDelegate, (rc: Rect)); //wkeOnCaretChanged
-DefineMulticastDelegate!(WebViewMouseOverUrlChangedDelegate, (url: String)); //wkeOnMouseOverUrlChanged
-DefineMulticastDelegate!(WebViewTitleChangedDelegate, (title: String)); // wkeOnTitleChanged
-DefineMulticastDelegate!(WebViewUrlChangedDelegate, (url: String)); // wkeOnURLChanged
-DefineMulticastDelegate!(WebViewFrameUrlChangedDelegate, (frame: WebFrame, url: String)); // wkeOnURLChanged2
-DefineMulticastDelegate!(WebViewDialogDelegate, (dialog: DialogType, message: String)); // wkeOnAlertBox, wkeOnConfirmBox, wkeOnPromptBox
-DefineMulticastDelegate!(WebViewNavigationDelegate, (navigation: NavigationType, url: String)); // wkeOnNavigation
-DefineMulticastDelegate!(WebViewCreateViewDelegate, (navigation: NavigationType, url: String, feature: WindowFeature)); // wkeOnCreateView
-DefineMulticastDelegate!(WebViewDocumentReadyDelegate, ()); // wkeOnDocumentReady
-DefineMulticastDelegate!(WebViewFrameDocumentReadyDelegate, (frame: WebFrame)); // wkeOnDocumentReady2
-DefineMulticastDelegate!(WebViewLoadingFinishDelegate, (url: String, result: LoadingResult)); // wkeOnLoadingFinish
-// DefineMulticastDelegate!(WebViewDownloadDelegate, (url: String, result: LoadingResult)); // wkeOnLoadingFinish
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsoleLevel {
+    Log = _wkeConsoleLevel_wkeLevelLog,
+    Warning = _wkeConsoleLevel_wkeLevelWarning,
+    Error = _wkeConsoleLevel_wkeLevelError,
+    Debug = _wkeConsoleLevel_wkeLevelDebug,
+    Info = _wkeConsoleLevel_wkeLevelInfo,
+    RevokedError = _wkeConsoleLevel_wkeLevelRevokedError,
+}
 
+#[derive(Debug, Clone)]
+pub struct ConsoleMessage {
+    pub level: ConsoleLevel,
+    pub message: String,
+    pub source_name: String,
+    pub source_line: u32,
+    pub stack_trace: String,
+}
+
+pub enum ClosingResult {
+    UnHandle,
+    Handled(bool),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DraggableRegion {
+    pub bounds: Rect,
+    pub draggable: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MediaInfo {
+    pub width: i32,
+    pub height: i32,
+    pub duration: f64,
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadType {
+    StartLoading = _wkeOtherLoadType_WKE_DID_START_LOADING,
+    StopLoading = _wkeOtherLoadType_WKE_DID_STOP_LOADING,
+    Navigate = _wkeOtherLoadType_WKE_DID_NAVIGATE,
+    NavigateInPage = _wkeOtherLoadType_WKE_DID_NAVIGATE_IN_PAGE,
+    GetResponseDetails = _wkeOtherLoadType_WKE_DID_GET_RESPONSE_DETAILS,
+    GetRedirectRequest = _wkeOtherLoadType_WKE_DID_GET_REDIRECT_REQUEST,
+    PostRequest = _wkeOtherLoadType_WKE_DID_POST_REQUEST,
+}
+
+DefineMulticastDelegate!(WebViewCaretChangedDelegate, (rc: Rect)); //wkeOnCaretChanged
+DefineMulticastDelegate!(WebViewMouseOverUrlChangedDelegate, (url: &str)); //wkeOnMouseOverUrlChanged
+DefineMulticastDelegate!(WebViewTitleChangedDelegate, (title: &str)); // wkeOnTitleChanged
+DefineMulticastDelegate!(WebViewUrlChangedDelegate, (url: &str)); // wkeOnURLChanged
+DefineMulticastDelegate!(WebViewFrameUrlChangedDelegate, (frame: &WebFrame, url: &str)); // wkeOnURLChanged2
+DefineMulticastDelegate!(WebViewDialogDelegate, (dialog: DialogType, message: &str)); // wkeOnAlertBox, wkeOnConfirmBox, wkeOnPromptBox
+DefineMulticastDelegate!(WebViewNavigationDelegate, (navigation: NavigationType, url: &str)); // wkeOnNavigation
+DefineMulticastDelegate!(WebViewCreateViewDelegate, (navigation: NavigationType, url: &str, feature: WindowFeature)); // wkeOnCreateView
+DefineMulticastDelegate!(WebViewDocumentReadyDelegate, ()); // wkeOnDocumentReady
+DefineMulticastDelegate!(WebViewFrameDocumentReadyDelegate, (frame: &WebFrame)); // wkeOnDocumentReady2
+DefineMulticastDelegate!(WebViewLoadingFinishDelegate, (url: &str, result: LoadingResult)); // wkeOnLoadingFinish
+DefineMulticastDelegate!(WebViewConsoleDelegate, (msg: &ConsoleMessage)); // wkeOnConsole
+DefineMulticastDelegate!(WebViewLoadUrlBeginDelegate, (url: &str, job: &Job)); // wkeOnLoadUrlBegin
+DefineMulticastDelegate!(WebViewLoadUrlEndDelegate, (url: &str, job: &Job, buf: &mut JobBuf)); // wkeOnLoadUrlEnd
+DefineMulticastDelegate!(WebViewLoadUrlHeadersReceivedDelegate, (url: &str, job: &Job)); // wkeOnLoadUrlHeadersReceived
+DefineMulticastDelegate!(WebViewLoadUrlFinishDelegate, (url: &str, job: &Job, len: i32)); // wkeOnLoadUrlFinish
+DefineMulticastDelegate!(WebViewLoadUrlFailDelegate, (url: &str, job: &Job)); // wkeOnLoadUrlFail
+DefineMulticastDelegate!(WebViewDidCreateScriptContextDelegate, (frame: &WebFrame)); // wkeOnDidCreateScriptContext
+DefineMulticastDelegate!(WebViewWillReleaseScriptContextDelegate, (frame: &WebFrame)); // wkeOnWillReleaseScriptContext
+DefineMulticastDelegate!(WebViewWindowClosingDelegate, (result: &mut ClosingResult)); // wkeOnWindowClosing
+DefineMulticastDelegate!(WebViewWindowDestroyDelegate, ()); // wkeOnWindowDestroy
+DefineMulticastDelegate!(WebViewDraggableRegionsChangedDelegate, (rects: &[DraggableRegion])); // wkeOnDraggableRegionsChanged
+DefineMulticastDelegate!(WebViewWillMediaLoadDelegate, (url: &str, info: MediaInfo)); // wkeOnWillMediaLoad
+DefineMulticastDelegate!(WebViewPrintDelegate, (frame: &WebFrame /* , params: */)); // wkeOnPrint
+
+// wkeOnPluginFind
+// wkeOnContextMenuItemClick
+// wkeOnOtherLoad
+// DefineMulticastDelegate!(WebViewStartDraggingDelegate, (frame: &WebFrame, )); // wkeOnStartDragging
 // wkeOnDownload
 // wkeOnDownload2
-// wkeOnConsole
-// wkeOnLoadUrlBegin
-// wkeOnLoadUrlEnd
-// wkeOnLoadUrlHeadersReceived
-// wkeOnLoadUrlFinish
-// wkeOnLoadUrlFail
-// wkeOnDidCreateScriptContext
-// wkeOnWillReleaseScriptContext
-// wkeOnWindowClosing
-// wkeOnWindowDestroy
-// wkeOnDraggableRegionsChanged
-// wkeOnWillMediaLoad
-// wkeOnStartDragging
-// wkeOnPrint
-// wkeOnOtherLoad
-// wkeOnContextMenuItemClick
-// wkeOnPluginFind
 
 pub(crate) struct WebViewInner {
     webview: wkeWebView,
     values: HashMap<String, Box<dyn Any>>,
-    on_destroy: WebViewDestroyDelegate,
+    caret_changed_delegate: Option<WebViewCaretChangedDelegate>,
+    mouse_over_url_changed_delegate: Option<WebViewMouseOverUrlChangedDelegate>,
+    title_changed_delegate: Option<WebViewTitleChangedDelegate>,
+    url_changed_delegate: Option<WebViewUrlChangedDelegate>,
+    frame_url_changed_delegate: Option<WebViewFrameUrlChangedDelegate>,
+    dialog_delegate: Option<WebViewDialogDelegate>,
+    navigation_delegate: Option<WebViewNavigationDelegate>,
+    create_view_delegate: Option<WebViewCreateViewDelegate>,
+    document_ready_delegate: Option<WebViewDocumentReadyDelegate>,
+    frame_document_ready_delegate: Option<WebViewFrameDocumentReadyDelegate>,
+    loading_finish_delegate: Option<WebViewLoadingFinishDelegate>,
+    console_delegate: Option<WebViewConsoleDelegate>,
+    load_url_begin_delegate: Option<WebViewLoadUrlBeginDelegate>,
+    load_url_end_delegate: Option<WebViewLoadUrlEndDelegate>,
+    load_url_headers_received_delegate: Option<WebViewLoadUrlHeadersReceivedDelegate>,
+    load_url_finish_delegate: Option<WebViewLoadUrlFinishDelegate>,
+    load_url_fail_delegate: Option<WebViewLoadUrlFailDelegate>,
+    did_create_script_context_delegate: Option<WebViewDidCreateScriptContextDelegate>,
+    will_release_script_context_delegate: Option<WebViewWillReleaseScriptContextDelegate>,
+    window_closing_delegate: Option<WebViewWindowClosingDelegate>,
+    window_destroy_delegate: WebViewWindowDestroyDelegate,
+    draggable_regions_changed_delegate: Option<WebViewDraggableRegionsChangedDelegate>,
+    will_media_load_delegate: Option<WebViewWillMediaLoadDelegate>,
+    print_delegate: Option<WebViewPrintDelegate>,
+}
+impl WebViewInner {
+    pub fn new(webview: wkeWebView) -> Self {
+        Self {
+            webview,
+            values: Default::default(),
+            caret_changed_delegate: Default::default(),
+            mouse_over_url_changed_delegate: Default::default(),
+            title_changed_delegate: Default::default(),
+            url_changed_delegate: Default::default(),
+            frame_url_changed_delegate: Default::default(),
+            dialog_delegate: Default::default(),
+            navigation_delegate: Default::default(),
+            create_view_delegate: Default::default(),
+            document_ready_delegate: Default::default(),
+            frame_document_ready_delegate: Default::default(),
+            loading_finish_delegate: Default::default(),
+            console_delegate: Default::default(),
+            load_url_begin_delegate: Default::default(),
+            load_url_end_delegate: Default::default(),
+            load_url_headers_received_delegate: Default::default(),
+            load_url_finish_delegate: Default::default(),
+            load_url_fail_delegate: Default::default(),
+            did_create_script_context_delegate: Default::default(),
+            will_release_script_context_delegate: Default::default(),
+            window_closing_delegate: Default::default(),
+            window_destroy_delegate: Default::default(),
+            draggable_regions_changed_delegate: Default::default(),
+            will_media_load_delegate: Default::default(),
+            print_delegate: Default::default(),
+        }
+    }
 }
 
 pub struct WebView {
@@ -283,12 +350,11 @@ impl WebView {
 
     pub(crate) fn attach_webview(webview: wkeWebView) -> Self {
         unsafe {
-            let inner = Rc::new(RefCell::new(WebViewInner {
-                webview,
-                values: Default::default(),
-                on_destroy: Default::default(),
-            }));
+            if let Ok(webview) = Self::from_native(webview) {
+                return webview;
+            }
 
+            let inner = Rc::new(RefCell::new(WebViewInner::new(webview)));
             let ptr = Rc::into_raw(inner.clone());
 
             wkeSetUserKeyValue.unwrap()(
@@ -356,8 +422,11 @@ impl WebView {
     pub fn from_current_context() -> Option<Self> {
         unsafe {
             let webview = wkeGetWebViewForCurrentContext.unwrap()();
-            // if wkeIsWebviewValid.unwr
-            None
+            if !from_bool_int(wkeIsWebviewValid.unwrap()(webview)) {
+                return None;
+            }
+
+            Some(Self::attach_webview(webview))
         }
     }
 
@@ -982,6 +1051,31 @@ impl WebView {
     pub fn is_transparent(&self) -> bool {
         unsafe { from_bool_int(wkeIsTransparent.unwrap()(self.get_webview())) }
     }
+
+    // pub fn on_caret_changed(&self){}
+    // pub fn on_mouse_over_url_changed(&self){}
+    // pub fn on_title_changed(&self){}
+    // pub fn on_url_changed(&self){}
+    // pub fn on_frame_url_changed(&self){}
+    // pub fn on_dialog(&self){}
+    // pub fn on_navigation(&self){}
+    // pub fn on_create_view(&self){}
+    // pub fn on_document_ready(&self){}
+    // pub fn on_frame_document_ready(&self){}
+    // pub fn on_loading_finish(&self){}
+    // pub fn on_console(&self){}
+    // pub fn on_load_url_begin(&self){}
+    // pub fn on_load_url_end(&self){}
+    // pub fn on_load_url_headers_received(&self){}
+    // pub fn on_load_url_finish(&self){}
+    // pub fn on_load_url_fail(&self){}
+    // pub fn on_did_create_script_context(&self){}
+    // pub fn on_will_release_script_context(&self){}
+    // pub fn on_window_closing(&self){}
+    // pub fn on_window_destroy(&self){}
+    // pub fn on_draggable_regions_changed(&self){}
+    // pub fn on_will_media_load(&self){}
+    // pub fn on_print(&self){}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

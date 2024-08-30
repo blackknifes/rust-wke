@@ -1,14 +1,17 @@
-
-use std::time::Duration;
-
-use super::*;
-use error::Result;
-use lazy_static::lazy_static;
-use tokio::task::LocalSet;
-use wke::{
+use super::error::Result;
+use super::{
     common::Rect,
     webview::{self, DebugConfig},
 };
+use lazy_static::lazy_static;
+use std::time::Duration;
+
+#[cfg(test)]
+mod wke {
+    pub use crate::init;
+    pub use crate::run_once;
+    pub use crate::RunOnceFlag;
+}
 
 #[cfg(target_os = "windows")]
 #[cfg(target_arch = "x86")]
@@ -49,13 +52,13 @@ async fn test_popup() -> Result<()> {
         height: 600,
     });
     webview.load_url("https://baidu.com");
-    webview.set_debug_config(DebugConfig::ShowDevTools(DEV_TOOLS_PATH.clone()));
+    webview.set_debug_config(DebugConfig::ShowDevTools(DEV_TOOLS_PATH.clone()))?;
     webview.show();
     let devtools = webview.show_devtools(&DEV_TOOLS_PATH).await?;
     tokio::time::sleep(Duration::from_secs(5)).await;
     devtools.close();
     webview.close();
-    wke::exit();
+    super::exit();
 
     Ok(())
 }
@@ -67,7 +70,7 @@ fn test_tokio() -> std::result::Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(test)]
-#[wke::main(dll = get_dll_path)]
+#[super::main(dll = get_dll_path)]
 async fn main() -> crate::error::Result<()> {
     // std::fs::write("target/apis.txt", wke::report())?;
     test_popup().await?;

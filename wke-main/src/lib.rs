@@ -65,7 +65,7 @@ pub fn main(attrs: TokenStream, item: TokenStream) -> TokenStream {
                 let runtime = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()?;
-                let localSet = LocalSet::new();
+                let localSet = tokio::task::LocalSet::new();
                 localSet.block_on(&runtime, async {
                     let _join_handle: tokio::task::JoinHandle<#fn_output> = tokio::task::spawn_local(async move {
                         #init_block

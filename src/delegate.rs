@@ -20,9 +20,17 @@ where
     }
 }
 
-pub enum Callback<FNONCE, FN> {
-    Once(Box<FNONCE>),
-    Func(Box<FN>),
+pub trait IntoDelegateParamMut<'a, DEST> {
+    fn into_param(&'a mut self) -> DEST;
+}
+
+impl<'life0, 'life1, DEST> IntoDelegateParamMut<'life0, &'life1 mut DEST> for DEST
+where
+    'life0: 'life1,
+{
+    fn into_param(&'life0 mut self) -> &'life1 mut DEST {
+        self
+    }
 }
 
 #[macro_export]
@@ -62,6 +70,11 @@ macro_rules! DefineMulticastDelegate {
 
             pub fn emit(&self, $($param_name: $param_type),*)
             {
+                #[allow(unused_imports)]
+                use $crate::delegate::IntoDelegateParam;
+                #[allow(unused_imports)]
+                use $crate::delegate::IntoDelegateParamMut;
+
                 for callback in self.callbacks.values() {
                     if let Err(err) = callback($($param_name.into_param()), *) {
                         log::error!("emit failed: {}", err);
@@ -112,6 +125,11 @@ macro_rules! DefineMulticastDelegate {
 
             pub async fn emit(&self, $($param_name: $param_type),*)
             {
+                #[allow(unused_imports)]
+                use $crate::delegate::IntoDelegateParam;
+                #[allow(unused_imports)]
+                use $crate::delegate::IntoDelegateParamMut;
+
                 for callback in self.callbacks.values() {
                     if let Err(err) = callback($($param_name.into_param()), *).await {
                         log::error!("emit failed: {}", err);
