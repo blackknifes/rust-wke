@@ -3,6 +3,7 @@ pub mod delegate;
 pub mod javascript;
 pub mod webframe;
 pub mod webview;
+pub mod net;
 pub use wke_main::main;
 
 use crate::{

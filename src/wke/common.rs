@@ -43,21 +43,21 @@ pub fn url_decode(str: &str) -> Result<String> {
 }
 
 ///位置
-#[derive(Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Point {
     pub x: i32,
     pub y: i32,
 }
 
 ///尺寸
-#[derive(Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Size {
     pub width: i32,
     pub height: i32,
 }
 
 ///举行区域
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -157,14 +157,14 @@ impl<T: 'static> UserValue<T> {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct InvokeFutureInner<T: Unpin> {
+/***********   *************/
+struct InvokeFutureInner<T: Unpin> {
     pub(crate) value: Option<T>,
     pub(crate) waker: Option<Waker>,
 }
 
 impl<T: Unpin> InvokeFutureInner<T> {
-    pub(crate) fn ready<PTR>(&mut self, value: T) {
+    pub(crate) fn ready(&mut self, value: T) {
         self.value.replace(value);
         if let Some(waker) = self.waker.take() {
             waker.wake();
@@ -172,8 +172,17 @@ impl<T: Unpin> InvokeFutureInner<T> {
     }
 }
 
-#[derive(Default)]
-pub struct InvokeFuture<T: Unpin>(pub(crate) Rc<RefCell<InvokeFutureInner<T>>>);
+#[derive(Clone)]
+pub struct InvokeFuture<T: Unpin>(Rc<RefCell<InvokeFutureInner<T>>>);
+
+impl<T: Unpin> std::default::Default for InvokeFuture<T> {
+    fn default() -> Self {
+        Self(Rc::new(RefCell::new(InvokeFutureInner {
+            value: None,
+            waker: None,
+        })))
+    }
+}
 
 impl<T: Unpin> std::future::Future for InvokeFuture<T> {
     type Output = T;
@@ -194,11 +203,16 @@ impl<T: Unpin> std::future::Future for InvokeFuture<T> {
 }
 
 impl<T: Unpin> InvokeFuture<T> {
-    pub(crate) unsafe fn from_raw<PTR>(ptr: *const PTR) -> Rc<RefCell<InvokeFuture<T>>> {
-        Rc::from_raw(ptr as *const InvokeFuture<T>)
+    pub(crate) unsafe fn from_raw<PTR>(ptr: *const PTR) -> Self {
+        let inner = Rc::from_raw(ptr as *const RefCell<InvokeFutureInner<T>>);
+        Self(inner)
     }
 
     pub(crate) fn into_raw<PTR>(&self) -> *mut PTR {
         Rc::into_raw(self.0.clone()) as *mut PTR
+    }
+
+    pub(crate) fn ready(&self, value: T) {
+        self.0.borrow_mut().ready(value);
     }
 }

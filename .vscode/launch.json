@@ -20,7 +20,10 @@
                     "kind": "lib"
                 },
             },
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--show-output"
+            ]
         }
     ]
 }

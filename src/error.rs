@@ -22,6 +22,7 @@ pub enum Error {
     TypeMismatch(String),
     Inited,
     InitFailed,
+    InvalidReference,
     OutOfBounds,
     JsCallException,
 }
@@ -53,6 +54,7 @@ impl From<Error> for Box<dyn std::error::Error> {
             Error::TypeMismatch(msg) => Box::new(StdError::new(format!("TypeMismatch: {}", msg))),
             Error::Inited => Box::new(StdError::new("Inited".to_owned())),
             Error::InitFailed => Box::new(StdError::new("InitFailed".to_owned())),
+            Error::InvalidReference => Box::new(StdError::new("InvalidReference".to_owned())),
             Error::OutOfBounds => Box::new(StdError::new("OutOfBounds".to_owned())),
             Error::JsCallException => Box::new(StdError::new("JsCallException".to_owned())),
         }

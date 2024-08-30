@@ -3,41 +3,12 @@ use super::webframe::WebFrame;
 use super::{common::Rect, Proxy};
 use crate::error::{Error, Result};
 use crate::utils::{from_bool_int, from_cstr_ptr, to_bool_int, to_cstr16_ptr, to_cstr_ptr};
+use extern_c::{find_cookie_on_visit_all_cookie, FindCookie};
 use std::ffi::c_void;
 use std::sync::Arc;
 use std::{ffi::CStr, ptr::null_mut};
 use wke_sys::{
-    _wkeCookieCommand_wkeCookieCommandClearAllCookies,
-    _wkeCookieCommand_wkeCookieCommandClearSessionCookies,
-    _wkeCookieCommand_wkeCookieCommandFlushCookiesToFile,
-    _wkeCookieCommand_wkeCookieCommandReloadCookiesFromFile, _wkeMenuItemId_kWkeMenuCopyImageId,
-    _wkeMenuItemId_kWkeMenuCutId, _wkeMenuItemId_kWkeMenuGoBackId,
-    _wkeMenuItemId_kWkeMenuGoForwardId, _wkeMenuItemId_kWkeMenuInspectElementAtId,
-    _wkeMenuItemId_kWkeMenuPasteId, _wkeMenuItemId_kWkeMenuPrintId,
-    _wkeMenuItemId_kWkeMenuReloadId, _wkeMenuItemId_kWkeMenuSelectedAllId,
-    _wkeMenuItemId_kWkeMenuSelectedTextId, _wkeMenuItemId_kWkeMenuUndoId,
-    _wkeWindowType_WKE_WINDOW_TYPE_POPUP, wkeAddPluginDirectory, wkeCanGoBack, wkeCanGoForward,
-    wkeClearCookie, wkeCreateWebWindow, wkeDefaultPrinterSettings, wkeDestroyWebView,
-    wkeEditorCopy, wkeEditorCut, wkeEditorDelete, wkeEditorPaste, wkeEditorRedo,
-    wkeEditorSelectAll, wkeEditorUnSelect, wkeEditorUndo, wkeGC, wkeGetCaretRect,
-    wkeGetContentHeight, wkeGetContentWidth, wkeGetCookie, wkeGetCursorInfoType, wkeGetHeight,
-    wkeGetHostHWND, wkeGetMediaVolume, wkeGetNavigateIndex, wkeGetSource, wkeGetTitle,
-    wkeGetUserAgent, wkeGetUserKeyValue, wkeGetWebViewForCurrentContext, wkeGetWidth,
-    wkeGetZoomFactor, wkeGoBack, wkeGoForward, wkeGoToIndex, wkeGoToOffset, wkeIsAwake,
-    wkeIsCookieEnabled, wkeIsDocumentReady, wkeIsLoadComplete, wkeIsLoadFailed, wkeIsLoaded,
-    wkeIsLoading, wkeIsLoadingCompleted, wkeIsLoadingFailed, wkeIsLoadingSucceeded, wkeIsMainFrame,
-    wkeIsTransparent, wkeIsWebviewValid, wkeKillFocus, wkeLoadHTML, wkeLoadHtmlWithBaseUrl,
-    wkeLoadURLW, wkeMoveToCenter, wkeMoveWindow, wkeNavigateAtIndex, wkePerformCookieCommand,
-    wkePostURL, wkeReload, wkeResize, wkeSetContextMenuEnabled, wkeSetContextMenuItemShow,
-    wkeSetCookie, wkeSetCookieEnabled, wkeSetCookieJarFullPath, wkeSetCookieJarPath,
-    wkeSetCspCheckEnable, wkeSetDebugConfig, wkeSetDragDropEnable, wkeSetDragEnable,
-    wkeSetEditable, wkeSetFocus, wkeSetHandle, wkeSetHandleOffset, wkeSetHeadlessEnabled,
-    wkeSetLanguage, wkeSetLocalStorageFullPath, wkeSetMediaVolume, wkeSetMemoryCacheEnable,
-    wkeSetMouseEnabled, wkeSetNavigationToNewWindowEnable, wkeSetNpapiPluginsEnabled,
-    wkeSetResourceGc, wkeSetSystemTouchEnabled, wkeSetTouchEnabled, wkeSetTransparent,
-    wkeSetUserAgent, wkeSetUserKeyValue, wkeSetViewProxy, wkeSetWebViewName, wkeSetWindowTitle,
-    wkeSetZoomFactor, wkeShowDevtools, wkeShowWindow, wkeSleep, wkeStopLoading, wkeUnlockViewDC,
-    wkeVisitAllCookie, wkeWake, wkeWebFrameGetMainFrame, wkeWebView, wkeWebViewName, HWND,
+    _wkeCookieCommand_wkeCookieCommandClearAllCookies, _wkeCookieCommand_wkeCookieCommandClearSessionCookies, _wkeCookieCommand_wkeCookieCommandFlushCookiesToFile, _wkeCookieCommand_wkeCookieCommandReloadCookiesFromFile, _wkeMenuItemId_kWkeMenuCopyImageId, _wkeMenuItemId_kWkeMenuCutId, _wkeMenuItemId_kWkeMenuGoBackId, _wkeMenuItemId_kWkeMenuGoForwardId, _wkeMenuItemId_kWkeMenuInspectElementAtId, _wkeMenuItemId_kWkeMenuPasteId, _wkeMenuItemId_kWkeMenuPrintId, _wkeMenuItemId_kWkeMenuReloadId, _wkeMenuItemId_kWkeMenuSelectedAllId, _wkeMenuItemId_kWkeMenuSelectedTextId, _wkeMenuItemId_kWkeMenuUndoId, _wkeWindowType_WKE_WINDOW_TYPE_POPUP, wkeAddPluginDirectory, wkeCanGoBack, wkeCanGoForward, wkeClearCookie, wkeCreateWebWindow, wkeDefaultPrinterSettings, wkeDestroyWebView, wkeEditorCopy, wkeEditorCut, wkeEditorDelete, wkeEditorPaste, wkeEditorRedo, wkeEditorSelectAll, wkeEditorUnSelect, wkeEditorUndo, wkeGC, wkeGetCaretRect, wkeGetContentHeight, wkeGetContentWidth, wkeGetCookie, wkeGetCursorInfoType, wkeGetHeight, wkeGetHostHWND, wkeGetMediaVolume, wkeGetNavigateIndex, wkeGetSource, wkeGetTitle, wkeGetUserAgent, wkeGetUserKeyValue, wkeGetWebViewForCurrentContext, wkeGetWidth, wkeGetZoomFactor, wkeGoBack, wkeGoForward, wkeGoToIndex, wkeGoToOffset, wkeIsAwake, wkeIsCookieEnabled, wkeIsDocumentReady, wkeIsLoadComplete, wkeIsLoadFailed, wkeIsLoaded, wkeIsLoading, wkeIsLoadingCompleted, wkeIsLoadingFailed, wkeIsLoadingSucceeded, wkeIsMainFrame, wkeIsTransparent, wkeIsWebviewValid, wkeKillFocus, wkeLoadHTML, wkeLoadHtmlWithBaseUrl, wkeLoadURLW, wkeMoveToCenter, wkeMoveWindow, wkeNavigateAtIndex, wkeOnLoadUrlBegin, wkePerformCookieCommand, wkePostURL, wkeReload, wkeResize, wkeSetContextMenuEnabled, wkeSetContextMenuItemShow, wkeSetCookie, wkeSetCookieEnabled, wkeSetCookieJarFullPath, wkeSetCookieJarPath, wkeSetCspCheckEnable, wkeSetDebugConfig, wkeSetDragDropEnable, wkeSetDragEnable, wkeSetEditable, wkeSetFocus, wkeSetHandle, wkeSetHandleOffset, wkeSetHeadlessEnabled, wkeSetLanguage, wkeSetLocalStorageFullPath, wkeSetMediaVolume, wkeSetMemoryCacheEnable, wkeSetMouseEnabled, wkeSetNavigationToNewWindowEnable, wkeSetNpapiPluginsEnabled, wkeSetResourceGc, wkeSetSystemTouchEnabled, wkeSetTouchEnabled, wkeSetTransparent, wkeSetUserAgent, wkeSetUserKeyValue, wkeSetViewProxy, wkeSetWebViewName, wkeSetWindowTitle, wkeSetZoomFactor, wkeShowDevtools, wkeShowWindow, wkeSleep, wkeStopLoading, wkeUnlockViewDC, wkeVisitAllCookie, wkeWake, wkeWebFrameGetMainFrame, wkeWebView, wkeWebViewName, HWND
 };
 mod extern_c;
 
@@ -115,6 +86,38 @@ pub struct Cookie {
     pub secure: bool,
     pub http_only: bool,
     pub expires: Option<i32>,
+}
+
+impl Cookie {
+    pub(crate) unsafe fn from_native(
+        name: String,
+        value: *const ::std::os::raw::c_char,
+        domain: *const ::std::os::raw::c_char,
+        path: *const ::std::os::raw::c_char,
+        secure: ::std::os::raw::c_int,
+        http_only: ::std::os::raw::c_int,
+        expires: *mut ::std::os::raw::c_int,
+    ) -> Result<Self> {
+        let value = from_cstr_ptr(value)?;
+        let domain = from_cstr_ptr(domain)?;
+        let path = from_cstr_ptr(path)?;
+        let secure = from_bool_int(secure);
+        let http_only = from_bool_int(http_only);
+        let expires = if expires.is_null() {
+            None
+        } else {
+            Some(expires.read())
+        };
+        return Ok(Self {
+            name,
+            value,
+            domain,
+            path,
+            secure,
+            http_only,
+            expires,
+        });
+    }
 }
 
 extern "C" fn on_visit_all_cookie(
@@ -422,7 +425,9 @@ impl WebView {
     }
 
     pub fn get_url(&self) -> Result<String> {
-        self.get_main_frame().get_url()
+        self.get_main_frame()
+            .ok_or_else(|| Error::InvalidReference)?
+            .get_url()
     }
 
     pub fn get_cursor_info_type(&self) -> i32 {
@@ -448,7 +453,7 @@ impl WebView {
     pub fn show_devtools(&self, path: &str) -> InvokeFuture<Result<WebView>> {
         unsafe {
             let path_u16 = to_cstr16_ptr(path);
-            let future = InvokeFuture::new();
+            let future = InvokeFuture::default();
             wkeShowDevtools.unwrap()(
                 self.webview,
                 (&path_u16).as_ptr(),
@@ -491,6 +496,18 @@ impl WebView {
 
     pub fn get_cookie(&self) -> Result<String> {
         unsafe { from_cstr_ptr(wkeGetCookie.unwrap()(self.webview)) }
+    }
+
+    pub fn find_cookie(&self, name: &str) -> Option<Cookie> {
+        unsafe {
+            let mut find_cookie = FindCookie::new(name.to_owned());
+            wkeVisitAllCookie.unwrap()(
+                self.webview,
+                &mut find_cookie as *mut FindCookie as *mut c_void,
+                Some(find_cookie_on_visit_all_cookie),
+            );
+            return find_cookie.cookie;
+        }
     }
 
     pub fn visit_all_cookies(&self, callback: impl Fn(Cookie) -> bool) {
@@ -658,10 +675,13 @@ impl WebView {
         }
     }
 
-    pub fn get_main_frame(&self) -> WebFrame {
+    pub fn get_main_frame(&self) -> Option<WebFrame> {
         unsafe {
             let frame = wkeWebFrameGetMainFrame.unwrap()(self.webview);
-            WebFrame::from_native(self.webview, frame)
+            if frame.is_null() {
+                return None;
+            }
+            Some(WebFrame::from_native(self.webview, frame))
         }
     }
 
@@ -733,6 +753,15 @@ impl WebView {
     pub fn is_transparent(&self) -> bool {
         unsafe { from_bool_int(wkeIsTransparent.unwrap()(self.webview)) }
     }
+
+    // pub fn on_load_end<FN>(&self)
+    // where
+    //     FN: Fn(),
+    // {
+    //     unsafe {
+    //         wkeOnLoadUrlBegin
+    //     }
+    // }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

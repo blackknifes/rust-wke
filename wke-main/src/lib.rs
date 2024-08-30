@@ -80,6 +80,7 @@ pub fn main(attrs: TokenStream, item: TokenStream) -> TokenStream {
                             _ => continue,
                         }
                     }
+
                     std::result::Result::<(), Box<dyn std::error::Error>>::Ok(())
                 })
             }
