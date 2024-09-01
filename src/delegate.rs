@@ -51,7 +51,22 @@ macro_rules! DefineMulticastDelegate {
             >>
         }
 
+        paste::paste! {
+            pub trait [<$name Fn>]: Fn($($param_type),*) -> $crate::error::Result<()> + 'static $(+ $trait1 $(+ $traits)*)? {
+
+            }
+
+            impl<FN> [<$name Fn>] for FN
+            where
+                FN: Fn($($param_type),*) -> $crate::error::Result<()> + 'static $(+ $trait1 $(+ $traits)*)?,
+            {}
+        }
+
         impl $name {
+            pub fn is_empty(&self) -> bool {
+                self.callbacks.is_empty()
+            }
+
             pub fn add<FN>(&mut self, func: FN) -> usize
             where
                 FN: Fn($($param_type), *) ->
@@ -104,6 +119,10 @@ macro_rules! DefineMulticastDelegate {
         }
 
         impl $name {
+            pub fn is_empty(&self) -> bool {
+                self.callbacks.is_empty()
+            }
+
             pub fn add<FN, FUT>(&mut self, func: FN) -> usize
             where
                 FUT: std::future::Future<Output = $crate::error::Result<()>> + 'static $(+ $trait1 $(+ $traits)*)?,

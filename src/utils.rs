@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
+use log::error;
 use std::ffi::{c_char, CStr, CString};
-use wke_sys::{wkeFreeMemBuf, wkeMemBuf, BOOL};
+use wke_sys::{wkeFreeMemBuf, wkeMemBuf, wkeSetString, wkeString, wkeToString, BOOL};
 
 pub(crate) unsafe fn to_cstr16_ptr(str: &str) -> Vec<u16> {
     let mut str_u16 = str.encode_utf16().collect::<Vec<u16>>();
@@ -12,6 +13,10 @@ pub(crate) struct Utf8(CString);
 impl Utf8 {
     pub(crate) fn to_utf8(&self) -> *const c_char {
         self.0.as_c_str().as_ptr()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.as_c_str().count_bytes()
     }
 }
 
@@ -25,6 +30,31 @@ pub(crate) unsafe fn from_cstr_ptr(str: *const c_char) -> Result<String> {
         .map_err(|err| Error::other(err))?
         .to_owned();
     Ok(str)
+}
+
+pub(crate) fn from_wkestring(str: wkeString) -> String {
+    unsafe {
+        match from_cstr_ptr(wkeToString.unwrap()(str)) {
+            Ok(str) => str,
+            Err(err) => {
+                log::error!("str convert rust failed: {}", err);
+                "".to_owned()
+            }
+        }
+    }
+}
+
+pub(crate) fn set_wkestring(wke: wkeString, str: &str) {
+    unsafe {
+        let str = match to_cstr_ptr(str) {
+            Ok(str) => str,
+            Err(err) => {
+                log::error!("str convert c string failed: {}", err);
+                to_cstr_ptr("").unwrap()
+            }
+        };
+        wkeSetString.unwrap()(wke, str.to_utf8(), str.len());
+    }
 }
 
 #[allow(dead_code)]

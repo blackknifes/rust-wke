@@ -1,3 +1,6 @@
+pub mod handle;
+pub mod lazy;
+
 use crate::{
     error::{Error, Result},
     utils::{from_cstr_ptr, to_cstr_ptr},
