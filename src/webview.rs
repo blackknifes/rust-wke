@@ -1,4 +1,4 @@
-use super::common::{InvokeFuture, Size, UserValue};
+use super::common::{InvokeFuture, Size};
 use super::webframe::WebFrame;
 use super::{common::Rect, Proxy};
 use crate::common::handle::HandleResult;
@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-use std::sync::Arc;
 use std::{ffi::CStr, ptr::null_mut};
 use wke_sys::*;
 mod extern_c;
@@ -108,6 +107,7 @@ pub enum NavigationType {
 }
 
 impl NavigationType {
+    #[allow(non_upper_case_globals)]
     pub(crate) fn from_native(navigation: wkeNavigationType) -> Self {
         match navigation {
             _wkeNavigationType_WKE_NAVIGATION_TYPE_LINKCLICK => Self::LinkClick,
@@ -117,6 +117,18 @@ impl NavigationType {
             _wkeNavigationType_WKE_NAVIGATION_TYPE_FORMRESUBMITT => Self::FormreSubmit,
             _ => Self::Other,
         }
+    }
+}
+
+pub enum NavigationResult {
+    Redirect,
+    NewWindow(WebView),
+    Abort,
+}
+
+impl std::default::Default for NavigationResult {
+    fn default() -> Self {
+        Self::Redirect
     }
 }
 
@@ -133,6 +145,24 @@ pub struct WindowFeature {
     pub scrollbars_visible: bool,
     pub resizable: bool,
     pub fullscreen: bool,
+}
+
+impl WindowFeature {
+    pub(crate) fn from_native(feature: &wkeWindowFeatures) -> Self {
+        Self {
+            x: feature.x,
+            y: feature.y,
+            width: feature.width,
+            height: feature.height,
+            menu_bar_visible: feature.menuBarVisible,
+            status_bar_visible: feature.statusBarVisible,
+            tool_bar_visible: feature.toolBarVisible,
+            location_bar_visible: feature.locationBarVisible,
+            scrollbars_visible: feature.scrollbarsVisible,
+            resizable: feature.resizable,
+            fullscreen: feature.fullscreen,
+        }
+    }
 }
 
 // pub const _wkeLoadingResult_WKE_LOADING_SUCCEEDED: _wkeLoadingResult = 0;
@@ -156,6 +186,20 @@ pub enum ConsoleLevel {
     RevokedError = _wkeConsoleLevel_wkeLevelRevokedError,
 }
 
+impl ConsoleLevel {
+    #[allow(non_upper_case_globals)]
+    pub fn from_native(level: wkeConsoleLevel) -> Self {
+        match level {
+            _wkeConsoleLevel_wkeLevelLog => Self::Log,
+            _wkeConsoleLevel_wkeLevelWarning => Self::Warning,
+            _wkeConsoleLevel_wkeLevelError => Self::Error,
+            _wkeConsoleLevel_wkeLevelDebug => Self::Debug,
+            _wkeConsoleLevel_wkeLevelInfo => Self::Info,
+            _ => Self::RevokedError,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ConsoleMessage {
     pub level: ConsoleLevel,
@@ -171,11 +215,35 @@ pub struct DraggableRegion {
     pub draggable: bool,
 }
 
+impl DraggableRegion {
+    pub(crate) fn from_native(region: &wkeDraggableRegion) -> Self {
+        Self {
+            bounds: Rect {
+                x: region.bounds.left,
+                y: region.bounds.top,
+                width: region.bounds.right - region.bounds.left,
+                height: region.bounds.bottom - region.bounds.top,
+            },
+            draggable: region.draggable,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct MediaInfo {
     pub width: i32,
     pub height: i32,
     pub duration: f64,
+}
+
+impl MediaInfo {
+    pub(crate) fn from_native(info: wkeMediaLoadInfo) -> Self {
+        Self {
+            width: info.width,
+            height: info.height,
+            duration: info.duration,
+        }
+    }
 }
 
 #[repr(i32)]
@@ -189,6 +257,7 @@ pub enum LoadType {
     GetRedirectRequest = _wkeOtherLoadType_WKE_DID_GET_REDIRECT_REQUEST,
     PostRequest = _wkeOtherLoadType_WKE_DID_POST_REQUEST,
 }
+
 DefineMulticastDelegate!(WebViewCaretChangedDelegate, (rc: Rect)); //wkeOnCaretChanged
 DefineMulticastDelegate!(WebViewMouseOverUrlChangedDelegate, (url: &str)); //wkeOnMouseOverUrlChanged
 DefineMulticastDelegate!(WebViewTitleChangedDelegate, (title: &str)); // wkeOnTitleChanged
@@ -196,12 +265,12 @@ DefineMulticastDelegate!(WebViewUrlChangedDelegate, (url: &str)); // wkeOnURLCha
 DefineMulticastDelegate!(WebViewFrameUrlChangedDelegate, (frame: &WebFrame, url: &str)); // wkeOnURLChanged2
 DefineMulticastDelegate!(WebViewDialogDelegate, (dialog: &mut DialogType, message: &str)); // wkeOnAlertBox, wkeOnConfirmBox, wkeOnPromptBox
 DefineMulticastDelegate!(WebViewNavigationDelegate, (navigation: NavigationType, url: &str, result: &mut HandleResult<bool>)); // wkeOnNavigation
-DefineMulticastDelegate!(WebViewCreateViewDelegate, (navigation: NavigationType, url: &str, feature: WindowFeature, result: &mut HandleResult<WebView>)); // wkeOnCreateView
+DefineMulticastDelegate!(WebViewCreateViewDelegate, (navigation: NavigationType, url: &str, feature: WindowFeature, result: &mut HandleResult<NavigationResult>)); // wkeOnCreateView
 DefineMulticastDelegate!(WebViewDocumentReadyDelegate, ()); // wkeOnDocumentReady
 DefineMulticastDelegate!(WebViewFrameDocumentReadyDelegate, (frame: &WebFrame)); // wkeOnDocumentReady2
 DefineMulticastDelegate!(WebViewLoadingFinishDelegate, (url: &str, result: LoadingResult)); // wkeOnLoadingFinish
 DefineMulticastDelegate!(WebViewConsoleDelegate, (msg: &ConsoleMessage)); // wkeOnConsole
-DefineMulticastDelegate!(WebViewLoadUrlBeginDelegate, (url: &str, job: &Job)); // wkeOnLoadUrlBegin
+DefineMulticastDelegate!(WebViewLoadUrlBeginDelegate, (url: &str, job: &Job, result: &mut HandleResult<bool>)); // wkeOnLoadUrlBegin
 DefineMulticastDelegate!(WebViewLoadUrlEndDelegate, (url: &str, job: &Job, buf: &mut JobBuf)); // wkeOnLoadUrlEnd
 DefineMulticastDelegate!(WebViewLoadUrlHeadersReceivedDelegate, (url: &str, job: &Job)); // wkeOnLoadUrlHeadersReceived
 DefineMulticastDelegate!(WebViewLoadUrlFinishDelegate, (url: &str, job: &Job, len: i32)); // wkeOnLoadUrlFinish
@@ -224,54 +293,54 @@ DefineMulticastDelegate!(WebViewPrintDelegate, (frame: &WebFrame /* , params: */
 
 pub struct WebViewDelegates {
     ///光标改变
-    pub caret_changed_delegate: Lazy<WebViewCaretChangedDelegate>,
+    pub on_caret_changed: Lazy<WebViewCaretChangedDelegate>,
     /// 鼠标划过url
-    pub mouse_over_url_changed_delegate: Lazy<WebViewMouseOverUrlChangedDelegate>,
+    pub on_mouse_over_url_changed: Lazy<WebViewMouseOverUrlChangedDelegate>,
     /// 标题改变
-    pub title_changed_delegate: Lazy<WebViewTitleChangedDelegate>,
+    pub on_title_changed: Lazy<WebViewTitleChangedDelegate>,
     /// url改变
-    pub url_changed_delegate: Lazy<WebViewUrlChangedDelegate>,
+    pub on_url_changed: Lazy<WebViewUrlChangedDelegate>,
     /// 某个frame中的url改变
-    pub frame_url_changed_delegate: Lazy<WebViewFrameUrlChangedDelegate>,
+    pub on_frame_url_changed: Lazy<WebViewFrameUrlChangedDelegate>,
     /// 弹出对话框
-    pub dialog_delegate: Lazy<WebViewDialogDelegate>,
+    pub on_dialog: Lazy<WebViewDialogDelegate>,
     /// 发生导航
-    pub navigation_delegate: Lazy<WebViewNavigationDelegate>,
+    pub on_navigation: Lazy<WebViewNavigationDelegate>,
     /// 创建新的webview
-    pub create_view_delegate: Lazy<WebViewCreateViewDelegate>,
+    pub on_create_view: Lazy<WebViewCreateViewDelegate>,
     /// document已准备
-    pub document_ready_delegate: Lazy<WebViewDocumentReadyDelegate>,
+    pub on_document_ready: Lazy<WebViewDocumentReadyDelegate>,
     /// 某个frame的document已准备
-    pub frame_document_ready_delegate: Lazy<WebViewFrameDocumentReadyDelegate>,
+    pub on_frame_document_ready: Lazy<WebViewFrameDocumentReadyDelegate>,
     /// 加载完成
-    pub loading_finish_delegate: Lazy<WebViewLoadingFinishDelegate>,
+    pub on_loading_finish: Lazy<WebViewLoadingFinishDelegate>,
     /// 控制台
-    pub console_delegate: Lazy<WebViewConsoleDelegate>,
+    pub on_console: Lazy<WebViewConsoleDelegate>,
     /// url加载开始
-    pub load_url_begin_delegate: Lazy<WebViewLoadUrlBeginDelegate>,
+    pub on_load_url_begin: Lazy<WebViewLoadUrlBeginDelegate>,
     /// url加载结束
-    pub load_url_end_delegate: Lazy<WebViewLoadUrlEndDelegate>,
+    pub on_load_url_end: Lazy<WebViewLoadUrlEndDelegate>,
     /// url加载接受到http头
-    pub load_url_headers_received_delegate: Lazy<WebViewLoadUrlHeadersReceivedDelegate>,
+    pub on_load_url_headers_received: Lazy<WebViewLoadUrlHeadersReceivedDelegate>,
     /// url加载完成
-    pub load_url_finish_delegate: Lazy<WebViewLoadUrlFinishDelegate>,
+    pub on_load_url_finish: Lazy<WebViewLoadUrlFinishDelegate>,
     /// url加载失败
-    pub load_url_fail_delegate: Lazy<WebViewLoadUrlFailDelegate>,
+    pub on_load_url_fail: Lazy<WebViewLoadUrlFailDelegate>,
     /// js环境创建
-    pub did_create_script_context_delegate: Lazy<WebViewDidCreateScriptContextDelegate>,
+    pub on_did_create_script_context: Lazy<WebViewDidCreateScriptContextDelegate>,
     /// js环境销毁
-    pub will_release_script_context_delegate: Lazy<WebViewWillReleaseScriptContextDelegate>,
+    pub on_will_release_script_context: Lazy<WebViewWillReleaseScriptContextDelegate>,
     /// 收到窗口关闭请求
-    pub window_closing_delegate: Lazy<WebViewWindowClosingDelegate>,
+    pub on_window_closing: Lazy<WebViewWindowClosingDelegate>,
     /// 可拖拽区域改变
-    pub draggable_regions_changed_delegate: Lazy<WebViewDraggableRegionsChangedDelegate>,
+    pub on_draggable_regions_changed: Lazy<WebViewDraggableRegionsChangedDelegate>,
     /// 将发生媒体加载
-    pub will_media_load_delegate: Lazy<WebViewWillMediaLoadDelegate>,
+    pub on_will_media_load: Lazy<WebViewWillMediaLoadDelegate>,
     /// 打印
-    pub print_delegate: Lazy<WebViewPrintDelegate>,
+    pub on_print: Lazy<WebViewPrintDelegate>,
 
     /// 窗口销毁
-    pub window_destroy_delegate: WebViewWindowDestroyDelegate,
+    pub on_window_destroy: WebViewWindowDestroyDelegate,
 }
 
 pub(crate) struct WebViewInner {
@@ -295,63 +364,59 @@ impl WebViewInner {
             webview,
             values: Default::default(),
             delegates: WebViewDelegates {
-                caret_changed_delegate: LazyNew!(webview, wkeOnCaretChanged, on_caret_changed),
-                mouse_over_url_changed_delegate: LazyNew!(
+                on_caret_changed: LazyNew!(webview, wkeOnCaretChanged, on_caret_changed),
+                on_mouse_over_url_changed: LazyNew!(
                     webview,
                     wkeOnMouseOverUrlChanged,
                     on_mouse_over_url_changed
                 ),
-                title_changed_delegate: LazyNew!(webview, wkeOnTitleChanged, on_title_changed),
-                url_changed_delegate: LazyNew!(webview, wkeOnURLChanged, on_url_changed),
-                frame_url_changed_delegate: LazyNew!(
-                    webview,
-                    wkeOnURLChanged2,
-                    on_frame_url_changed
-                ),
-                dialog_delegate: Lazy::new(move || unsafe {
+                on_title_changed: LazyNew!(webview, wkeOnTitleChanged, on_title_changed),
+                on_url_changed: LazyNew!(webview, wkeOnURLChanged, on_url_changed),
+                on_frame_url_changed: LazyNew!(webview, wkeOnURLChanged2, on_frame_url_changed),
+                on_dialog: Lazy::new(move || unsafe {
                     wkeOnAlertBox.unwrap()(webview, Some(extern_c::on_alert_box), null_mut());
                     wkeOnConfirmBox.unwrap()(webview, Some(extern_c::on_confirm_box), null_mut());
                     wkeOnPromptBox.unwrap()(webview, Some(extern_c::on_prompt_box), null_mut());
                     Default::default()
                 }),
-                navigation_delegate: LazyNew!(webview, wkeOnNavigation, on_navigation),
-                create_view_delegate: LazyNew!(webview, wkeOnCreateView, on_create_view),
-                document_ready_delegate: LazyNew!(webview, wkeOnDocumentReady, on_document_ready),
-                frame_document_ready_delegate: LazyNew!(
+                on_navigation: LazyNew!(webview, wkeOnNavigation, on_navigation),
+                on_create_view: LazyNew!(webview, wkeOnCreateView, on_create_view),
+                on_document_ready: LazyNew!(webview, wkeOnDocumentReady, on_document_ready),
+                on_frame_document_ready: LazyNew!(
                     webview,
                     wkeOnDocumentReady2,
                     on_frame_document_ready
                 ),
-                loading_finish_delegate: LazyNew!(webview, wkeOnLoadingFinish, on_loading_finish),
-                console_delegate: LazyNew!(webview, wkeOnConsole, on_console),
-                load_url_begin_delegate: LazyNew!(webview, wkeOnLoadUrlBegin, on_load_url_begin),
-                load_url_end_delegate: LazyNew!(webview, wkeOnLoadUrlEnd, on_load_url_end),
-                load_url_headers_received_delegate: LazyNew!(
+                on_loading_finish: LazyNew!(webview, wkeOnLoadingFinish, on_loading_finish),
+                on_console: LazyNew!(webview, wkeOnConsole, on_console),
+                on_load_url_begin: LazyNew!(webview, wkeOnLoadUrlBegin, on_load_url_begin),
+                on_load_url_end: LazyNew!(webview, wkeOnLoadUrlEnd, on_load_url_end),
+                on_load_url_headers_received: LazyNew!(
                     webview,
                     wkeOnLoadUrlHeadersReceived,
                     on_load_url_headers_received
                 ),
-                load_url_finish_delegate: LazyNew!(webview, wkeOnLoadUrlFinish, on_load_url_finish),
-                load_url_fail_delegate: LazyNew!(webview, wkeOnLoadUrlFail, on_load_url_fail),
-                did_create_script_context_delegate: LazyNew!(
+                on_load_url_finish: LazyNew!(webview, wkeOnLoadUrlFinish, on_load_url_finish),
+                on_load_url_fail: LazyNew!(webview, wkeOnLoadUrlFail, on_load_url_fail),
+                on_did_create_script_context: LazyNew!(
                     webview,
                     wkeOnDidCreateScriptContext,
                     on_did_create_script_context
                 ),
-                will_release_script_context_delegate: LazyNew!(
+                on_will_release_script_context: LazyNew!(
                     webview,
                     wkeOnWillReleaseScriptContext,
                     on_will_release_script_context
                 ),
-                window_closing_delegate: LazyNew!(webview, wkeOnWindowClosing, on_window_closing),
-                draggable_regions_changed_delegate: LazyNew!(
+                on_window_closing: LazyNew!(webview, wkeOnWindowClosing, on_window_closing),
+                on_draggable_regions_changed: LazyNew!(
                     webview,
                     wkeOnDraggableRegionsChanged,
                     on_draggable_regions_changed
                 ),
-                will_media_load_delegate: LazyNew!(webview, wkeOnWillMediaLoad, on_will_media_load),
-                print_delegate: LazyNew!(webview, wkeOnPrint, on_print),
-                window_destroy_delegate: Default::default(),
+                on_will_media_load: LazyNew!(webview, wkeOnWillMediaLoad, on_will_media_load),
+                on_print: LazyNew!(webview, wkeOnPrint, on_print),
+                on_window_destroy: Default::default(),
             },
         }
     }
@@ -473,15 +538,15 @@ pub enum CookieCommand {
     ReloadCookiesFromFile = _wkeCookieCommand_wkeCookieCommandReloadCookiesFromFile,
 }
 
-pub struct WebViewDelegatesMut<'a>(std::cell::RefMut<'a, WebViewInner>);
-impl<'a> Deref for WebViewDelegatesMut<'a> {
+pub struct DelegatesMut<'a>(std::cell::RefMut<'a, WebViewInner>);
+impl<'a> Deref for DelegatesMut<'a> {
     type Target = WebViewDelegates;
 
     fn deref(&self) -> &Self::Target {
         &self.0.delegates
     }
 }
-impl<'a> DerefMut for WebViewDelegatesMut<'a> {
+impl<'a> DerefMut for DelegatesMut<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0.delegates
     }
@@ -574,8 +639,8 @@ impl WebView {
         }
     }
 
-    pub fn delegates(&self) -> WebViewDelegatesMut {
-        WebViewDelegatesMut(self.inner.borrow_mut())
+    pub fn delegates(&self) -> DelegatesMut {
+        DelegatesMut(self.inner.borrow_mut())
     }
 
     pub fn close(&self) {
@@ -1147,25 +1212,6 @@ impl WebView {
         }
     }
 
-    pub fn set_user_value<T: 'static>(&self, key: &str, value: T) -> Result<()> {
-        unsafe {
-            let ptr = UserValue::into_raw(UserValue::new(value));
-            wkeSetUserKeyValue.unwrap()(
-                self.get_webview(),
-                to_cstr_ptr(key)?.to_utf8(),
-                ptr as *mut c_void,
-            );
-            Ok(())
-        }
-    }
-
-    pub fn get_user_value<T: 'static>(&self, key: &str) -> Result<Arc<UserValue<T>>> {
-        unsafe {
-            let ptr = wkeGetUserKeyValue.unwrap()(self.get_webview(), to_cstr_ptr(key)?.to_utf8());
-            UserValue::from_raw(ptr as *const UserValue<T>)
-        }
-    }
-
     pub fn go_to_offset(&self, offset: i32) {
         unsafe {
             wkeGoToOffset.unwrap()(self.get_webview(), offset);
@@ -1198,5 +1244,23 @@ impl WebView {
 
     pub fn is_transparent(&self) -> bool {
         unsafe { from_bool_int(wkeIsTransparent.unwrap()(self.get_webview())) }
+    }
+
+    pub fn set_user_value<T: Any + Clone>(&self, key: String, value: T) {
+        self.inner.borrow_mut().values.insert(key, Box::new(value));
+    }
+
+    pub fn get_user_value<T: Clone + 'static>(&self, key: &str) -> Option<T> {
+        if let Some(Some(val)) = self
+            .inner
+            .borrow()
+            .values
+            .get(key)
+            .map(|item| item.downcast_ref::<T>().map(Clone::clone))
+        {
+            Some(val)
+        } else {
+            None
+        }
     }
 }

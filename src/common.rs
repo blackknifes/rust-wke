@@ -2,16 +2,12 @@ pub mod handle;
 pub mod lazy;
 
 use crate::{
-    error::{Error, Result},
+    error::Result,
     utils::{from_cstr_ptr, to_cstr_ptr},
 };
-use std::{
-    any::TypeId,
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, RwLockReadGuard, RwLockWriteGuard},
-    task::Waker,
-};
+pub use handle::*;
+pub use lazy::*;
+use std::{cell::RefCell, rc::Rc, task::Waker};
 use wke_sys::{
     wkeRect, wkeUtilBase64Decode, wkeUtilBase64Encode, wkeUtilDecodeURLEscape,
     wkeUtilEncodeURLEscape,
@@ -99,63 +95,6 @@ impl Rect {
         Point {
             x: self.x + self.width / 2,
             y: self.y + self.height / 2,
-        }
-    }
-}
-
-pub struct UserValue<T: 'static> {
-    typeid: TypeId,
-    value: std::sync::RwLock<T>,
-}
-
-impl<T: 'static> UserValue<T> {
-    ///创建一个新的用户变量
-    pub(crate) fn new(value: T) -> Arc<Self> {
-        Arc::new(Self {
-            typeid: TypeId::of::<T>(),
-            value: std::sync::RwLock::new(value),
-        })
-    }
-
-    pub fn read(&'static self) -> Result<RwLockReadGuard<T>> {
-        let val = self
-            .value
-            .read()
-            .map_err(|_| Error::msg("uesr value read lock failed"))?;
-        Ok(val)
-    }
-
-    pub fn write(&'static self) -> Result<RwLockWriteGuard<T>> {
-        let val = self
-            .value
-            .write()
-            .map_err(|_| Error::msg("uesr value write lock failed"))?;
-        Ok(val)
-    }
-
-    ///转为指针
-    pub(crate) fn into_raw(arc: Arc<Self>) -> *const Self {
-        Arc::into_raw(arc)
-    }
-
-    ///从指针转为UserValue
-    pub(crate) fn from_raw(ptr: *const UserValue<T>) -> Result<Arc<Self>> {
-        unsafe {
-            if ptr.is_null() {
-                return Err(Error::TypeMismatch("ptr is null".to_owned()));
-            }
-
-            let arc = Arc::from_raw(ptr);
-            let typeid: TypeId = TypeId::of::<T>();
-            if arc.typeid != typeid {
-                let err = Error::TypeMismatch(format!(
-                    "type {:?} is mismatch to {:?} of stored",
-                    arc.typeid, typeid
-                ));
-                return Err(err);
-            }
-
-            Ok(arc)
         }
     }
 }

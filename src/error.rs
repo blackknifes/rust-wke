@@ -19,10 +19,11 @@ impl StdError {
 pub enum Error {
     Other(Box<dyn std::error::Error + Send + 'static>),
     StdError(String),
-    TypeMismatch(String),
+    TypeMismatch,
     Inited,
     InitFailed,
     InvalidReference,
+    InvalidEnum,
     OutOfBounds,
     JsCallException,
 }
@@ -51,12 +52,13 @@ impl From<Error> for Box<dyn std::error::Error> {
         match value {
             Error::Other(err) => err,
             Error::StdError(msg) => Box::new(StdError::new(msg)),
-            Error::TypeMismatch(msg) => Box::new(StdError::new(format!("TypeMismatch: {}", msg))),
+            Error::TypeMismatch => Box::new(StdError::new("TypeMismatch".to_owned())),
             Error::Inited => Box::new(StdError::new("Inited".to_owned())),
             Error::InitFailed => Box::new(StdError::new("InitFailed".to_owned())),
             Error::InvalidReference => Box::new(StdError::new("InvalidReference".to_owned())),
             Error::OutOfBounds => Box::new(StdError::new("OutOfBounds".to_owned())),
             Error::JsCallException => Box::new(StdError::new("JsCallException".to_owned())),
+            Error::InvalidEnum => Box::new(StdError::new("InvalidEnum".to_owned())),
         }
     }
 }
@@ -73,10 +75,6 @@ impl Error {
         return Self::Other(Box::new(err));
     }
 
-    pub(crate) fn type_mismatch(msg: impl Into<String>) -> Self {
-        Error::TypeMismatch(msg.into())
-    }
-
     pub fn downcast<ERR>(self) -> Result<ERR>
     where
         ERR: std::error::Error + 'static,
@@ -86,7 +84,7 @@ impl Error {
                 .downcast::<ERR>()
                 .map(|err| *err)
                 .map_err(|err| Error::Other(err)),
-            _ => Err(Self::type_mismatch(format!("error type is not other"))),
+            _ => Err(Self::TypeMismatch),
         }
     }
 
@@ -95,10 +93,8 @@ impl Error {
         ERR: std::error::Error + 'static,
     {
         match self {
-            Error::Other(err) => err
-                .downcast_ref::<ERR>()
-                .ok_or_else(|| Self::type_mismatch("error type mismatch".to_owned())),
-            _ => Err(Self::type_mismatch(format!("error type is not other"))),
+            Error::Other(err) => err.downcast_ref::<ERR>().ok_or_else(|| Self::TypeMismatch),
+            _ => Err(Self::TypeMismatch),
         }
     }
 
@@ -107,10 +103,8 @@ impl Error {
         ERR: std::error::Error + 'static,
     {
         match self {
-            Error::Other(err) => err
-                .downcast_mut::<ERR>()
-                .ok_or_else(|| Self::type_mismatch("error type mismatch".to_owned())),
-            _ => Err(Self::type_mismatch(format!("error type is not other"))),
+            Error::Other(err) => err.downcast_mut::<ERR>().ok_or_else(|| Self::TypeMismatch),
+            _ => Err(Self::TypeMismatch),
         }
     }
 }

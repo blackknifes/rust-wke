@@ -12,7 +12,7 @@ impl<T: Default> std::default::Default for HandleResult<T> {
 impl<T> HandleResult<T> {
     pub fn handle(&mut self, value: T) {
         if let HandleResult::UnHandle = self {
-            std::mem::replace(self, HandleResult::Handled(value));
+            let _ = std::mem::replace(self, HandleResult::Handled(value));
         }
     }
 

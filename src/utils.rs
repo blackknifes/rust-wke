@@ -1,7 +1,9 @@
 use crate::error::{Error, Result};
-use log::error;
-use std::ffi::{c_char, CStr, CString};
-use wke_sys::{wkeFreeMemBuf, wkeMemBuf, wkeSetString, wkeString, wkeToString, BOOL};
+use std::{
+    ffi::{c_char, CStr, CString},
+    os::raw::c_void,
+};
+use wke_sys::{wkeMemBuf, wkeSetString, wkeString, wkeToString, BOOL};
 
 pub(crate) unsafe fn to_cstr16_ptr(str: &str) -> Vec<u16> {
     let mut str_u16 = str.encode_utf16().collect::<Vec<u16>>();
@@ -74,11 +76,14 @@ pub(crate) fn from_bool_int(value: BOOL) -> bool {
     }
 }
 
-pub(crate) fn from_mem(mem: *mut wkeMemBuf) -> Vec<u8> {
+pub(crate) fn from_mem(mem: *const wkeMemBuf) -> Vec<u8> {
     unsafe {
         let info = mem.read();
         let data = Vec::from_raw_parts(info.data as *mut u8, info.length, info.length);
-        wkeFreeMemBuf.unwrap()(mem);
         data
     }
+}
+
+pub(crate) fn from_ptr(ptr: *const c_void, size: usize) -> Vec<u8> {
+    unsafe { Vec::from_raw_parts(ptr as *mut u8, size, size) }
 }

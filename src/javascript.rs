@@ -1,22 +1,14 @@
 use super::webview::WebView;
 use crate::error::{Error, Result};
-use crate::utils::{from_bool_int, from_cstr_ptr, from_mem, to_cstr_ptr};
-use wke_sys::{
-    _jsType_JSTYPE_ARRAY, _jsType_JSTYPE_BOOLEAN, _jsType_JSTYPE_FUNCTION, _jsType_JSTYPE_NULL,
-    _jsType_JSTYPE_NUMBER, _jsType_JSTYPE_OBJECT, _jsType_JSTYPE_STRING, _jsType_JSTYPE_UNDEFINED,
-    jsArg, jsArgCount, jsArrayBuffer, jsCall, jsDouble, jsEmptyArray, jsEmptyObject, jsEval,
-    jsExecState, jsGet, jsGetArrayBuffer, jsGetAt, jsGetKeys, jsGetLastErrorIfException,
-    jsGetLength, jsGetWebView, jsInt, jsIsArray, jsIsBoolean, jsIsFalse, jsIsFunction,
-    jsIsJsValueValid, jsIsNull, jsIsNumber, jsIsObject, jsIsString, jsIsTrue, jsIsUndefined, jsSet,
-    jsSetAt, jsSetLength, jsString, jsToBoolean, jsToDouble, jsToInt, jsToTempString, jsTypeOf,
-    jsUndefined, jsValue,
-};
+use crate::utils::{from_bool_int, from_cstr_ptr, from_mem, to_cstr16_ptr, to_cstr_ptr};
+use wke_sys::*;
 
 pub struct ExecState {
     state: jsExecState,
 }
 
 pub struct JsValue {
+    state: Option<jsExecState>,
     value: jsValue,
 }
 
@@ -36,6 +28,12 @@ pub enum JsType {
 impl ExecState {
     pub(crate) fn from_native(state: jsExecState) -> Self {
         Self { state }
+    }
+    pub(crate) fn new_value(&self, value: jsValue) -> JsValue {
+        JsValue {
+            state: Some(self.state),
+            value,
+        }
     }
 
     pub fn get_webview(&self) -> Option<WebView> {
@@ -59,7 +57,15 @@ impl ExecState {
         unsafe {
             let value = jsEval.unwrap()(self.state, to_cstr_ptr(script)?.to_utf8());
 
-            Ok(JsValue { value })
+            Ok(self.new_value(value))
+        }
+    }
+
+    pub fn eval_in_closure(&self, script: &str) -> Result<JsValue> {
+        unsafe {
+            let value = jsEvalExW.unwrap()(self.state, (&to_cstr16_ptr(script)).as_ptr(), true);
+
+            Ok(self.new_value(value))
         }
     }
 
@@ -68,17 +74,44 @@ impl ExecState {
     }
 
     pub fn arg(&self, index: i32) -> JsValue {
+        unsafe { self.new_value(jsArg.unwrap()(self.state, index)) }
+    }
+
+    pub fn global(&self) -> JsValue {
+        unsafe { self.new_value(jsGlobalObject.unwrap()(self.state)) }
+    }
+
+    pub fn callstack(&self) -> Option<String> {
         unsafe {
-            JsValue {
-                value: jsArg.unwrap()(self.state, index),
+            let str = jsGetCallstack.unwrap()(self.state);
+            if str.is_null() {
+                return None;
             }
+            if let Ok(str) = from_cstr_ptr(str) {
+                return Some(str);
+            }
+
+            None
+        }
+    }
+
+    pub fn throw(&self, exception: &str) -> Result<JsValue> {
+        unsafe {
+            let value = jsThrowException.unwrap()(self.state, to_cstr_ptr(exception)?.to_utf8());
+            Ok(self.new_value(value))
         }
     }
 }
 
 impl JsValue {
+    pub(crate) fn from_native_with_state(state: jsExecState, value: jsValue) -> Self {
+        Self {
+            state: Some(state),
+            value,
+        }
+    }
     pub(crate) fn from_native(value: jsValue) -> Self {
-        Self { value }
+        Self { state: None, value }
     }
 
     pub fn from_int(value: i32) -> Self {
@@ -189,6 +222,20 @@ impl JsValue {
         unsafe { from_bool_int(jsToBoolean.unwrap()(state.state, self.value)) }
     }
 
+    pub fn get_array_buffer(&self, state: &ExecState) -> Result<Vec<u8>> {
+        unsafe {
+            let mem = jsGetArrayBuffer.unwrap()(state.state, self.value);
+            if mem.is_null() {
+                return Err(Error::TypeMismatch);
+            }
+
+            let data = from_mem(mem);
+            wkeFreeMemBuf.unwrap()(mem);
+
+            Ok(data)
+        }
+    }
+
     pub fn to_string(&self, state: &ExecState) -> Result<String> {
         unsafe { from_cstr_ptr(jsToTempString.unwrap()(state.state, self.value)) }
     }
@@ -253,6 +300,13 @@ impl JsValue {
         }
     }
 
+    pub fn delete(&self, state: &ExecState, key: &str) -> Result<()> {
+        unsafe {
+            jsDeleteObjectProp.unwrap()(state.state, self.value, to_cstr_ptr(key)?.to_utf8());
+            Ok(())
+        }
+    }
+
     pub fn call(
         &self,
         state: &ExecState,
@@ -278,6 +332,16 @@ impl JsValue {
             }
 
             Ok(JsValue { value })
+        }
+    }
+}
+
+impl Drop for JsValue {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(state) = self.state {
+                jsReleaseRef.unwrap()(state, self.value);
+            }
         }
     }
 }

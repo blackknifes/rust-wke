@@ -1,11 +1,12 @@
+use std::ptr::null_mut;
+
 use super::javascript::{ExecState, JsValue};
-use crate::utils::{from_bool_int, to_bool_int, to_cstr_ptr};
+use crate::common::Size;
+use crate::error::Error;
+use crate::utils::{from_bool_int, from_mem, from_ptr, to_bool_int, to_cstr_ptr};
 use crate::{error::Result, utils::from_cstr_ptr};
 use wke_sys::wkeGetFrameUrl;
-use wke_sys::{
-    wkeGetGlobalExecByFrame, wkeInsertCSSByFrame, wkeIsMainFrame, wkePrintSettings,
-    wkeWebFrameHandle, wkeWebView,
-};
+use wke_sys::*;
 
 #[derive(Clone, Copy)]
 pub struct PrintSettings {
@@ -23,6 +24,7 @@ pub struct PrintSettings {
 }
 
 impl PrintSettings {
+    /// 使用4k纸张来创建打印设置
     pub fn new_4k() -> Self {
         Self {
             dpi: 300,                            // 高质量打印常用的 DPI
@@ -39,7 +41,6 @@ impl PrintSettings {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn into_native(&self) -> wkePrintSettings {
         wkePrintSettings {
             structSize: std::mem::size_of::<wkePrintSettings>() as i32,
@@ -74,37 +75,43 @@ impl WebFrame {
         Self { webview, frame }
     }
 
-    pub async fn run_js(&self, _script: &str, _is_in_closure: bool) -> JsValue {
-        todo!()
+    pub fn get_url(&self) -> Result<String> {
+        unsafe { from_cstr_ptr(wkeGetFrameUrl.unwrap()(self.webview, self.frame)) }
+    }
+
+    pub fn get_document_complete_url(&self, partial_url: &str) -> Result<String> {
+        unsafe {
+            from_cstr_ptr(wkeGetDocumentCompleteURL.unwrap()(
+                self.webview,
+                self.frame,
+                to_cstr_ptr(partial_url)?.to_utf8(),
+            ))
+        }
+    }
+
+    pub fn get_exec_state(&self) -> ExecState {
+        unsafe {
+            ExecState::from_native(wkeGetGlobalExecByFrame.unwrap()(self.webview, self.frame))
+        }
     }
 
     pub fn is_main(&self) -> bool {
         unsafe { from_bool_int(wkeIsMainFrame.unwrap()(self.webview, self.frame)) }
     }
 
-    pub fn get_url(&self) -> Result<String> {
-        unsafe { from_cstr_ptr(wkeGetFrameUrl.unwrap()(self.webview, self.frame)) }
+    pub fn is_remote_frame(&self) -> bool {
+        unsafe { from_bool_int(wkeIsWebRemoteFrame.unwrap()(self.webview, self.frame)) }
     }
 
-    // pub async fn print_to_pdf(&self, settings: PrintSettings) -> Vec<Vec<u8>> {
-    //     todo!()
-    // }
-
-    // pub async fn print_to_bitmap(&self, size: Size) -> Vec<u8>
-    // {
-    //     todo!()
-    // }
-
-    // pub async fn popup_dialog_and_download()
-    // {
-    //     todo!()
-    // }
-
-    // pub async fn get_pdf_page_data(&self) -> Vec<u8> {}
-
-    pub fn get_exec_state(&self) -> ExecState {
+    pub fn run_js(&self, script: &str, is_in_closure: bool) -> Result<JsValue> {
         unsafe {
-            ExecState::from_native(wkeGetGlobalExecByFrame.unwrap()(self.webview, self.frame))
+            let val = wkeRunJsByFrame.unwrap()(
+                self.webview,
+                self.frame,
+                to_cstr_ptr(script)?.to_utf8(),
+                is_in_closure,
+            );
+            Ok(JsValue::from_native(val))
         }
     }
 
@@ -114,4 +121,60 @@ impl WebFrame {
             Ok(())
         }
     }
+
+    pub fn print_to_pdf(&self, settings: PrintSettings) -> Result<Vec<Vec<u8>>> {
+        unsafe {
+            let settings = settings.into_native();
+            let ptr = wkeUtilPrintToPdf.unwrap()(self.webview, self.frame, &settings);
+            if ptr.is_null() {
+                return Err(Error::InvalidReference);
+            }
+
+            let datas = ptr.as_ref().unwrap();
+            let mut datas_ret = Vec::with_capacity(datas.count.min(0).max(0x1000) as usize);
+
+            for index in 0..datas.count as usize {
+                let data = datas.datas.add(index).read();
+                let size = datas.sizes.add(index).read();
+                datas_ret.push(from_ptr(data, size));
+            }
+
+            wkeUtilRelasePrintPdfDatas.unwrap()(ptr);
+            Ok(datas_ret)
+        }
+    }
+
+    pub fn print_to_bitmap(&self, size: Size) -> Result<Vec<u8>> {
+        unsafe {
+            let settings = wkeScreenshotSettings {
+                structSize: std::mem::size_of::<wkeScreenshotSettings>() as i32,
+                width: size.width,
+                height: size.height,
+            };
+            let mem = wkePrintToBitmap.unwrap()(self.webview, self.frame, &settings);
+            if mem.is_null() {
+                return Err(Error::InvalidReference);
+            }
+            let data = from_mem(mem);
+
+            Ok(data)
+        }
+    }
+
+    pub fn get_content_as_markup(&self) -> Result<String> {
+        unsafe {
+            from_cstr_ptr(wkeGetContentAsMarkup.unwrap()(
+                self.webview,
+                self.frame,
+                null_mut(),
+            ))
+        }
+    }
+
+    // pub async fn popup_dialog_and_download()
+    // {
+    //     todo!()
+    // }
+
+    // pub async fn get_pdf_page_data(&self) -> Vec<u8> {}
 }
