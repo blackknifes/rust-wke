@@ -67,8 +67,8 @@ pub fn main(attrs: TokenStream, item: TokenStream) -> TokenStream {
                     .build()?;
                 let localSet = tokio::task::LocalSet::new();
                 localSet.block_on(&runtime, async {
+                    #init_block
                     let _join_handle: tokio::task::JoinHandle<#fn_output> = tokio::task::spawn_local(async move {
-                        #init_block
 
                         #fn_block
                     });

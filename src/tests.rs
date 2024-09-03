@@ -5,6 +5,8 @@ use super::{
 };
 use crate::javascript::{JsDelegate, JsValue};
 use lazy_static::lazy_static;
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 #[cfg(test)]
@@ -13,14 +15,6 @@ mod wke {
     pub use crate::run_once;
     pub use crate::RunOnceFlag;
 }
-
-#[cfg(target_os = "windows")]
-#[cfg(target_arch = "x86")]
-const DLL: &str = "miniblink_4975_x32.dll";
-
-#[cfg(target_os = "windows")]
-#[cfg(target_arch = "x86_64")]
-const DLL: &str = "miniblink_4975_x64.dll";
 
 lazy_static! {
     static ref DEV_TOOLS_PATH: String = std::env::current_dir()
@@ -35,11 +29,18 @@ lazy_static! {
 }
 
 fn get_dll_path() -> String {
-    std::env::current_dir()
+    let target = std::env::current_dir()
         .expect("cannot get current dir")
-        .join("wke-sys")
-        .join("wke")
-        .join(DLL)
+        .join("target");
+    let target = if cfg!(debug_assertions) {
+        target.join("debug")
+    } else {
+        target.join("release")
+    };
+
+    target
+        .join("bin")
+        .join("miniblink.dll")
         .to_str()
         .expect("cannot get dll path")
         .to_owned()
