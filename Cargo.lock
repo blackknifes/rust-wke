@@ -531,8 +531,17 @@ dependencies = [
  "log",
  "paste",
  "tokio",
+ "wke-jsbind",
  "wke-main",
  "wke-sys",
+]
+
+[[package]]
+name = "wke-jsbind"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]

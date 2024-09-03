@@ -1,7 +1,11 @@
+mod extern_c;
+
 use super::webview::WebView;
 use crate::error::{Error, Result};
 use crate::utils::{from_bool_int, from_cstr_ptr, from_mem, to_cstr16_ptr, to_cstr_ptr};
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::mem::offset_of;
 use std::ops::Deref;
 use std::rc::Rc;
 use wke_sys::*;
@@ -18,6 +22,26 @@ struct ContextHolderInner {
 /// 上下文环境维持对象, 在该对象的生命周期类，该线程都将在该环境下，除非有新的Holder替代当前Holder
 pub struct ContextHolder {
     inner: Rc<ContextHolderInner>,
+}
+
+pub struct ArrayBuffer(pub Vec<u8>);
+
+impl From<&[u8]> for ArrayBuffer {
+    fn from(value: &[u8]) -> Self {
+        Self(value.iter().cloned().collect())
+    }
+}
+
+impl From<Vec<u8>> for ArrayBuffer {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<ArrayBuffer> for Vec<u8> {
+    fn from(value: ArrayBuffer) -> Self {
+        value.0
+    }
 }
 
 impl Drop for ContextHolder {
@@ -219,6 +243,56 @@ impl Context {
     }
 }
 
+/// Js委托
+pub trait JsDelegate {
+    fn get(&mut self, name: &str) -> Result<JsValuePerssist>;
+    fn set(&mut self, name: &str, val: &JsValue) -> Result<()>;
+    fn call(&mut self, args: &[&JsValue]) -> Result<JsValuePerssist>;
+    fn finalize(&mut self) -> Result<()>;
+}
+
+struct JsDataC {
+    pub data: jsData,
+    pub delegate: *mut dyn JsDelegate,
+}
+
+impl JsDataC {
+    pub fn from_ptr(ptr: *mut jsData) -> *mut Self {
+        //计算偏移
+        let offset = offset_of!(JsDataC, data);
+        (ptr as *mut u8).wrapping_sub(offset) as *mut Self
+    }
+
+    pub fn into_ptr(val: Box<Self>) -> *mut jsData {
+        unsafe {
+            let ptr = Box::into_raw(val);
+            &mut ptr.as_mut().unwrap().data
+        }
+    }
+
+    fn new(name: &str, delegate: Box<dyn JsDelegate>) -> Result<Box<Self>> {
+        unsafe {
+            let name = to_cstr_ptr(name)?;
+            if name.len() >= 100 {
+                return Err(Error::OutOfBounds);
+            }
+
+            let data: tagjsData = jsData {
+                typeName: [0; 100],
+                propertyGet: Some(extern_c::on_get),
+                propertySet: Some(extern_c::on_set),
+                finalize: Some(extern_c::on_finalize),
+                callAsFunction: Some(extern_c::on_call),
+            };
+
+            Ok(Box::new(Self {
+                data,
+                delegate: Box::into_raw(delegate),
+            }))
+        }
+    }
+}
+
 /// js变量
 pub struct JsValue {
     value: jsValue,
@@ -266,6 +340,32 @@ impl JsValue {
     /// 创建空数组
     pub fn array() -> Result<JsValuePerssist> {
         unsafe { Self::from_native_with_entered(jsEmptyArray.unwrap()(Context::current()?.state)) }
+    }
+
+    /// 绑定一个对象委托为函数
+    pub fn bind_object<D: JsDelegate + 'static>(
+        name: &str,
+        delegate: D,
+    ) -> Result<JsValuePerssist> {
+        unsafe {
+            let ctx = Context::current()?;
+            let js_data = JsDataC::into_ptr(JsDataC::new(name, Box::new(delegate))?);
+            let val = JsValue::from_native(jsObject.unwrap()(ctx.state, js_data));
+            Ok(JsValuePerssist::from_native(ctx.state, val))
+        }
+    }
+
+    /// 绑定一个函数委托为函数
+    pub fn bind_function<D: JsDelegate + 'static>(
+        name: &str,
+        delegate: D,
+    ) -> Result<JsValuePerssist> {
+        unsafe {
+            let ctx = Context::current()?;
+            let js_data = JsDataC::into_ptr(JsDataC::new(name, Box::new(delegate))?);
+            let val = JsValue::from_native(jsFunction.unwrap()(ctx.state, js_data));
+            Ok(JsValuePerssist::from_native(ctx.state, val))
+        }
     }
 
     /// 从bool值创建
@@ -396,7 +496,7 @@ impl JsValue {
     }
 
     /// 获取arrayBuffer中的数据
-    pub fn get_array_buffer(&self) -> Result<Vec<u8>> {
+    pub fn get_array_buffer(&self) -> Result<ArrayBuffer> {
         unsafe {
             let mem = jsGetArrayBuffer.unwrap()(Context::current()?.state, self.value);
             if mem.is_null() {
@@ -406,7 +506,7 @@ impl JsValue {
             let data = from_mem(mem);
             wkeFreeMemBuf.unwrap()(mem);
 
-            Ok(data)
+            Ok(ArrayBuffer(data))
         }
     }
 
@@ -532,10 +632,25 @@ pub struct JsValuePerssist {
     state: jsExecState,
 }
 
+impl JsValuePerssist {
+    pub(crate) fn from_native(state: jsExecState, value: JsValue) -> Self {
+        Self {
+            value: Rc::new(value),
+            state,
+        }
+    }
+}
+
 impl Deref for JsValuePerssist {
     type Target = JsValue;
 
     fn deref(&self) -> &Self::Target {
+        self.value.as_ref()
+    }
+}
+
+impl AsRef<JsValue> for JsValuePerssist {
+    fn as_ref(&self) -> &JsValue {
         self.value.as_ref()
     }
 }
@@ -549,5 +664,152 @@ impl Drop for JsValuePerssist {
                 jsReleaseRef.unwrap()(self.state, self.value.value);
             }
         }
+    }
+}
+
+pub trait FromJs: Sized {
+    fn from_js(value: &JsValue) -> Result<Self>;
+}
+
+pub trait IntoJs {
+    fn into_js(&self) -> Result<JsValuePerssist>;
+}
+
+macro_rules! ImplFromIntoInt {
+    ($type: ident) => {
+        impl FromJs for $type {
+            fn from_js(value: &JsValue) -> Result<Self> {
+                value.to_int().map(|val| val as $type)
+            }
+        }
+
+        impl IntoJs for $type {
+            fn into_js(&self) -> Result<JsValuePerssist> {
+                JsValue::from_int(*self as i32)
+            }
+        }
+    };
+}
+
+macro_rules! ImplFromIntoF64 {
+    ($type: ident) => {
+        impl FromJs for $type {
+            fn from_js(value: &JsValue) -> Result<Self> {
+                value.to_int().map(|val| val as $type)
+            }
+        }
+
+        impl IntoJs for $type {
+            fn into_js(&self) -> Result<JsValuePerssist> {
+                JsValue::from_f64(*self as f64)
+            }
+        }
+    };
+}
+
+ImplFromIntoInt!(i8);
+ImplFromIntoInt!(u8);
+ImplFromIntoInt!(i16);
+ImplFromIntoInt!(u16);
+ImplFromIntoInt!(i32);
+
+ImplFromIntoF64!(u32);
+ImplFromIntoF64!(i64);
+ImplFromIntoF64!(u64);
+ImplFromIntoF64!(f32);
+ImplFromIntoF64!(f64);
+
+impl FromJs for String {
+    fn from_js(value: &JsValue) -> Result<Self> {
+        value.to_string()
+    }
+}
+
+impl IntoJs for &str {
+    fn into_js(&self) -> Result<JsValuePerssist> {
+        JsValue::from_str(self)
+    }
+}
+
+impl IntoJs for String {
+    fn into_js(&self) -> Result<JsValuePerssist> {
+        JsValue::from_str(self)
+    }
+}
+
+impl FromJs for ArrayBuffer {
+    fn from_js(value: &JsValue) -> Result<Self> {
+        value.get_array_buffer()
+    }
+}
+
+impl IntoJs for ArrayBuffer {
+    fn into_js(&self) -> Result<JsValuePerssist> {
+        JsValue::from_data(&self.0)
+    }
+}
+
+impl<T: FromJs> FromJs for Vec<T> {
+    fn from_js(value: &JsValue) -> Result<Self> {
+        if !value.is_array() {
+            return Err(Error::TypeMismatch);
+        }
+
+        let len = value.len()?;
+        if len < 0 {
+            return Err(Error::StdError("index is negative".to_owned()));
+        }
+        let mut vals = Self::with_capacity(len as usize);
+        for index in 0..len {
+            let val = value.get_at(index)?;
+            let val = T::from_js(&val)?;
+            vals.push(val);
+        }
+
+        Ok(vals)
+    }
+}
+
+impl<T: IntoJs> IntoJs for Vec<T> {
+    fn into_js(&self) -> Result<JsValuePerssist> {
+        let vals = JsValue::array()?;
+        vals.set_len(self.len() as i32)?;
+
+        let mut index = 0;
+        for val in self.iter() {
+            let js_val = val.into_js()?;
+            vals.set_at(index, js_val.as_ref())?;
+            index = index + 1;
+        }
+        Ok(vals)
+    }
+}
+
+impl<T: FromJs> FromJs for HashMap<String, T> {
+    fn from_js(value: &JsValue) -> Result<Self> {
+        if !value.is_object() {
+            return Err(Error::TypeMismatch);
+        }
+
+        let keys = value.keys()?;
+        let mut obj = Self::with_capacity(keys.len());
+        for key in keys {
+            let val = value.get(&key)?;
+            obj.insert(key, FromJs::from_js(&val)?);
+        }
+
+        Ok(obj)
+    }
+}
+
+impl<T: IntoJs> IntoJs for HashMap<String, T> {
+    fn into_js(&self) -> Result<JsValuePerssist> {
+        let obj = JsValue::object()?;
+        for (key, val) in self.iter() {
+            let js_val = val.into_js()?;
+            obj.set(key, &js_val)?;
+        }
+
+        Ok(obj)
     }
 }
