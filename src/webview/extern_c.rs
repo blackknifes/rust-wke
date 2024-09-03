@@ -18,7 +18,7 @@ pub(crate) extern "C" fn on_show_dev_tools(
         let result = if webview.is_null() {
             Result::Err(crate::error::Error::InvalidReference)
         } else {
-            WebView::from_native(webview)
+            Ok(WebView::attach_webview(webview))
         };
         let future = InvokeFuture::from_raw(_param);
         future.ready(result);

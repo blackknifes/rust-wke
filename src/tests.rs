@@ -99,6 +99,7 @@ async fn test_popup() -> Result<()> {
             let _holder = ctx.enter();
             let func = JsValue::bind_function("test", TestCaller {})?;
             ctx.global().set("test", &func)?;
+            ctx.eval("window.test(\"测试接口\")")?;
             Ok(())
         });
     webview.show();
