@@ -1,13 +1,8 @@
+use super::common::Rect;
 use super::error::{Error, Result};
-use super::{
-    common::Rect,
-    webview::{self, DebugConfig},
-};
 use crate::javascript::{JsDelegate, JsValue};
+use crate::webview;
 use lazy_static::lazy_static;
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::time::Duration;
 
 #[cfg(test)]
 mod wke {
