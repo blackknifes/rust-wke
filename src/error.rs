@@ -26,6 +26,7 @@ pub enum Error {
     InvalidEnum,
     OutOfBounds,
     JsCallException,
+    JsContextNotEntered,
 }
 
 impl std::fmt::Display for Error {
@@ -59,6 +60,7 @@ impl From<Error> for Box<dyn std::error::Error> {
             Error::OutOfBounds => Box::new(StdError::new("OutOfBounds".to_owned())),
             Error::JsCallException => Box::new(StdError::new("JsCallException".to_owned())),
             Error::InvalidEnum => Box::new(StdError::new("InvalidEnum".to_owned())),
+            Error::JsContextNotEntered => Box::new(StdError::new("JsContextNotEntered".to_owned())),
         }
     }
 }

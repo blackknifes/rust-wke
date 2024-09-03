@@ -8,10 +8,7 @@ use crate::{
 pub use handle::*;
 pub use lazy::*;
 use std::{cell::RefCell, rc::Rc, task::Waker};
-use wke_sys::{
-    wkeRect, wkeUtilBase64Decode, wkeUtilBase64Encode, wkeUtilDecodeURLEscape,
-    wkeUtilEncodeURLEscape,
-};
+use wke_sys::*;
 
 pub fn base64_encode(str: &str) -> Result<String> {
     unsafe {

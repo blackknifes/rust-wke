@@ -3,7 +3,7 @@ use std::{
     ffi::{c_char, CStr, CString},
     os::raw::c_void,
 };
-use wke_sys::{wkeMemBuf, wkeSetString, wkeString, wkeToString, BOOL};
+use wke_sys::*;
 
 pub(crate) unsafe fn to_cstr16_ptr(str: &str) -> Vec<u16> {
     let mut str_u16 = str.encode_utf16().collect::<Vec<u16>>();

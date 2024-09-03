@@ -16,13 +16,7 @@ use crate::{
     error::{Error, Result},
     utils::{from_bool_int, from_cstr_ptr},
 };
-use wke_sys::{
-    _wkeProxyType_WKE_PROXY_HTTP, _wkeProxyType_WKE_PROXY_NONE, _wkeProxyType_WKE_PROXY_SOCKS4,
-    _wkeProxyType_WKE_PROXY_SOCKS4A, _wkeProxyType_WKE_PROXY_SOCKS5,
-    _wkeProxyType_WKE_PROXY_SOCKS5HOSTNAME, win32ExitLoop, win32RunLoop, win32RunLoopOnce,
-    wkeEnableHighDPISupport, wkeInit, wkeIsInitialize, wkeProxy, wkeProxyType, wkeSetProxy,
-    wkeSetWkeDllPath, wkeShutdown, wkeVersion, wkeVersionString,
-};
+use wke_sys::*;
 
 ///代理设置
 #[derive(Debug, Clone)]
@@ -219,8 +213,6 @@ pub fn enable_high_dpi_support() {
 
 #[cfg(test)]
 pub fn report() -> String {
-    use wke_sys::{wkeReport, wkeReportFree};
-
     unsafe {
         let report = from_cstr_ptr(wkeReport()).unwrap();
         wkeReportFree();
