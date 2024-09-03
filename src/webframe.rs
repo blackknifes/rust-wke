@@ -104,7 +104,7 @@ impl WebFrame {
     }
 
     /// 获取环境
-    pub fn get_exec_state(&self) -> Context {
+    pub fn get_context(&self) -> Context {
         unsafe { Context::from_native(wkeGetGlobalExecByFrame.unwrap()(self.webview, self.frame)) }
     }
 

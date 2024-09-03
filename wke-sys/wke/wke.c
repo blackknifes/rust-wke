@@ -55,10 +55,12 @@ int win32RunLoopOnce()
     while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
         if (msg.message == WM_QUIT)
         {
-            while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+            int index = 0;
+            while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) && index < 100)
             {
                 TranslateMessage(&msg);
-                DispatchMessage(&msg);        
+                DispatchMessage(&msg);
+                ++index;
             }
             return -1;
         }

@@ -25,6 +25,7 @@ pub enum Error {
     InvalidReference,
     InvalidEnum,
     OutOfBounds,
+    NotImplement,
     JsCallException,
     JsContextNotEntered,
 }
@@ -58,6 +59,7 @@ impl From<Error> for Box<dyn std::error::Error> {
             Error::InitFailed => Box::new(StdError::new("InitFailed".to_owned())),
             Error::InvalidReference => Box::new(StdError::new("InvalidReference".to_owned())),
             Error::OutOfBounds => Box::new(StdError::new("OutOfBounds".to_owned())),
+            Error::NotImplement => Box::new(StdError::new("NotImplement".to_owned())),
             Error::JsCallException => Box::new(StdError::new("JsCallException".to_owned())),
             Error::InvalidEnum => Box::new(StdError::new("InvalidEnum".to_owned())),
             Error::JsContextNotEntered => Box::new(StdError::new("JsContextNotEntered".to_owned())),

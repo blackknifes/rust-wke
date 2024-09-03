@@ -245,6 +245,10 @@ impl Context {
 
 /// Js委托
 pub trait JsDelegate {
+    fn has_get(&self) -> bool;
+    fn has_set(&self) -> bool;
+    fn has_call(&self) -> bool;
+
     fn get(&mut self, name: &str) -> Result<JsValuePerssist>;
     fn set(&mut self, name: &str, val: &JsValue) -> Result<()>;
     fn call(&mut self, args: &[&JsValue]) -> Result<JsValuePerssist>;
@@ -279,10 +283,22 @@ impl JsDataC {
 
             let data: tagjsData = jsData {
                 typeName: [0; 100],
-                propertyGet: Some(extern_c::on_get),
-                propertySet: Some(extern_c::on_set),
+                propertyGet: if delegate.has_get() {
+                    Some(extern_c::on_get)
+                } else {
+                    None
+                },
+                propertySet: if delegate.has_set() {
+                    Some(extern_c::on_set)
+                } else {
+                    None
+                },
+                callAsFunction: if delegate.has_call() {
+                    Some(extern_c::on_call)
+                } else {
+                    None
+                },
                 finalize: Some(extern_c::on_finalize),
-                callAsFunction: Some(extern_c::on_call),
             };
 
             Ok(Box::new(Self {
@@ -661,7 +677,7 @@ impl Drop for JsValuePerssist {
             if from_bool_int(jsIsValidExecState.unwrap()(self.state))
                 && from_bool_int(jsIsJsValueValid.unwrap()(self.state, self.value.value))
             {
-                jsReleaseRef.unwrap()(self.state, self.value.value);
+                // jsReleaseRef.unwrap()(self.state, self.value.value);
             }
         }
     }
