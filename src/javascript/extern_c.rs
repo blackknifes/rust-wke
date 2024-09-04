@@ -1,7 +1,7 @@
 use super::{JsDataC, JsValue};
 use crate::{
     error::{Error, Result},
-    utils::{from_bool_int, from_cstr_ptr},
+    utils::{from_bool_int, from_cstr_ptr, to_cstr_ptr},
 };
 use std::ffi::{c_char, c_int};
 use wke_sys::*;
@@ -46,11 +46,17 @@ pub(crate) extern "C" fn on_get(es: jsExecState, object: jsValue, name: *const c
                 .unwrap()
                 .get(&name)
                 .map(|val| {
-                    jsAddRef.unwrap()(es, val.value.value);
-                    val.value.value
+                    jsAddRef.unwrap()(es, val.value);
+                    val.value
                 })
                 .unwrap_or_else(|_| jsUndefined.unwrap()()),
-            Err(_) => jsUndefined.unwrap()(),
+            Err(err) => {
+                let errmsg = to_cstr_ptr(&format!("{}", err))
+                    .unwrap_or_else(|_| to_cstr_ptr("native getter call failed").unwrap());
+                jsThrowException.unwrap()(es, errmsg.to_utf8());
+
+                jsUndefined.unwrap()()
+            }
         }
     }
 }
@@ -75,7 +81,13 @@ pub(crate) extern "C" fn on_set(
                     .map(|_| true)
                     .unwrap_or(false)
             }
-            Err(_) => false,
+            Err(err) => {
+                let errmsg = to_cstr_ptr(&format!("{}", err))
+                    .unwrap_or_else(|_| to_cstr_ptr("native setter call failed").unwrap());
+                jsThrowException.unwrap()(es, errmsg.to_utf8());
+
+                false
+            }
         }
     }
 }
@@ -103,12 +115,18 @@ pub(crate) extern "C" fn on_call(
                     .unwrap()
                     .call(&args)
                     .map(|val| {
-                        jsAddRef.unwrap()(es, val.value.value);
-                        val.value.value
+                        jsAddRef.unwrap()(es, val.value);
+                        val.value
                     })
                     .unwrap_or_else(|_| jsUndefined.unwrap()())
             }
-            Err(_) => jsUndefined.unwrap()(),
+            Err(err) => {
+                let errmsg = to_cstr_ptr(&format!("{}", err))
+                    .unwrap_or_else(|_| to_cstr_ptr("native caller call failed").unwrap());
+                jsThrowException.unwrap()(es, errmsg.to_utf8());
+
+                jsUndefined.unwrap()()
+            }
         }
     }
 }

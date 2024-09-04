@@ -5,12 +5,20 @@ use super::error::Result;
 use crate::javascript::{FromJs, JsValue};
 use crate::webview;
 use lazy_static::lazy_static;
+use wke::javascript::IntoJs;
+use wke_jsbind::{FromJs, IntoJs};
 
 #[cfg(test)]
 mod wke {
-    pub use crate::init;
-    pub use crate::run_once;
-    pub use crate::RunOnceFlag;
+    pub use crate::*;
+}
+
+#[derive(Default, FromJs, IntoJs)]
+struct AutoJs {
+    #[js]
+    val: i32,
+    #[js]
+    str: String,
 }
 
 #[cfg(target_arch = "x86")]
@@ -79,8 +87,13 @@ async fn test_jsbind() -> Result<()> {
 
             ctx.global().set(
                 "TestGetterSetter",
-                JsValue::bind_object("test", javascript::TestGetterSetter::default())?.as_ref(),
+                &JsValue::bind_object("test", javascript::TestGetterSetter::default())?,
             )?;
+            let auto_js = AutoJs {
+                val: 50,
+                str: "auto_js".to_owned(),
+            };
+            ctx.global().set("auto_js", &auto_js.into_js()?)?;
 
             ctx.eval("window.test(\"test interface\")")?;
             ctx.eval(
@@ -93,6 +106,14 @@ async fn test_jsbind() -> Result<()> {
                 window.log("TestGetterSetter::const=" + window.TestGetterSetter.const_value);
             })()"#,
             )?;
+
+            ctx.eval(r#"
+                window.log("auto_js=" + JSON.stringify(window.auto_js));
+            "#)?;
+            let ret = ctx.eval("return {val: 50, str: \"test\"}")?;
+            let auto_js = AutoJs::from_js(&ret)?;
+            assert_eq!(auto_js.val, 50);
+            assert_eq!(auto_js.str, "test");
 
             let webview = frame.webview()?;
             tokio::task::spawn_local(async move {

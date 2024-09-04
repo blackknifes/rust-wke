@@ -5,6 +5,7 @@ use crate::error::{Error, Result};
 use crate::utils::{from_bool_int, from_cstr_ptr, from_mem, to_cstr16_ptr, to_cstr_ptr};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::mem::offset_of;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -74,7 +75,7 @@ impl ContextHolder {
 }
 
 /// js类型
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsType {
     Number,
     String,
@@ -84,6 +85,12 @@ pub enum JsType {
     Array,
     Null,
     Undefined,
+}
+
+impl std::fmt::Display for JsType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
 }
 
 impl JsType {
@@ -246,31 +253,40 @@ impl Context {
 
 /// Js委托
 pub trait JsDelegate {
+    /// 是否包含getter回调
     fn has_get(&self) -> bool {
         false
     }
+
+    // 是否包含setter回调
     fn has_set(&self) -> bool {
         false
     }
+
+    /// 是否作为函数调用
     fn has_call(&self) -> bool {
         false
     }
 
+    /// getter回调
     #[allow(unused_variables)]
-    fn get(&mut self, name: &str) -> Result<JsValuePerssist> {
+    fn get(&mut self, name: &str) -> Result<JsValue> {
         Err(Error::NotImplement)
     }
 
+    /// setter回调
     #[allow(unused_variables)]
     fn set(&mut self, name: &str, val: &JsValue) -> Result<()> {
         Err(Error::NotImplement)
     }
 
+    /// 作为函数调用回调
     #[allow(unused_variables)]
-    fn call(&mut self, args: &[&JsValue]) -> Result<JsValuePerssist> {
+    fn call(&mut self, args: &[&JsValue]) -> Result<JsValue> {
         Err(Error::NotImplement)
     }
 
+    /// 清理环境
     fn finalize(&mut self) -> Result<()> {
         Ok(())
     }
@@ -360,90 +376,92 @@ impl JsValue {
     }
 
     /// 创建null对象
-    pub fn null() -> Result<JsValuePerssist> {
-        unsafe { Self::from_native_with_entered(jsNull.unwrap()()) }
+    pub fn null() -> Result<Self> {
+        unsafe { Ok(Self::from_native(jsNull.unwrap()())) }
     }
 
     /// 创建undefined对象
-    pub fn undefined() -> Result<JsValuePerssist> {
-        unsafe { Self::from_native_with_entered(jsUndefined.unwrap()()) }
+    pub fn undefined() -> Result<Self> {
+        unsafe { Ok(Self::from_native(jsUndefined.unwrap()())) }
     }
 
     /// 创建空对象
-    pub fn object() -> Result<JsValuePerssist> {
-        unsafe { Self::from_native_with_entered(jsEmptyObject.unwrap()(Context::current()?.state)) }
+    pub fn object() -> Result<Self> {
+        unsafe {
+            Ok(Self::from_native(jsEmptyObject.unwrap()(
+                Context::current()?.state,
+            )))
+        }
     }
 
     /// 创建空数组
-    pub fn array() -> Result<JsValuePerssist> {
-        unsafe { Self::from_native_with_entered(jsEmptyArray.unwrap()(Context::current()?.state)) }
+    pub fn array() -> Result<Self> {
+        unsafe {
+            Ok(Self::from_native(jsEmptyArray.unwrap()(
+                Context::current()?.state,
+            )))
+        }
     }
 
     /// 绑定一个对象委托为函数
-    pub fn bind_object<D: JsDelegate + 'static>(
-        name: &str,
-        delegate: D,
-    ) -> Result<JsValuePerssist> {
+    pub fn bind_object<D: JsDelegate + 'static>(name: &str, delegate: D) -> Result<Self> {
         unsafe {
             let ctx = Context::current()?;
             let js_data = JsDataC::into_ptr(JsDataC::new(name, Box::new(delegate))?);
             let val = JsValue::from_native(jsObject.unwrap()(ctx.state, js_data));
-            Ok(JsValuePerssist::from_native(ctx.state, val))
+            Ok(val)
         }
     }
 
     /// 绑定一个函数委托为函数
-    pub fn bind_function<D: JsDelegate + 'static>(
-        name: &str,
-        delegate: D,
-    ) -> Result<JsValuePerssist> {
+    pub fn bind_function<D: JsDelegate + 'static>(name: &str, delegate: D) -> Result<Self> {
         unsafe {
             let ctx = Context::current()?;
             let js_data = JsDataC::into_ptr(JsDataC::new(name, Box::new(delegate))?);
             let val = JsValue::from_native(jsFunction.unwrap()(ctx.state, js_data));
-            Ok(JsValuePerssist::from_native(ctx.state, val))
+            Ok(val)
         }
     }
 
     /// 从bool值创建
-    pub fn from_bool(val: bool) -> Result<JsValuePerssist> {
+    pub fn from_bool(val: bool) -> Result<JsValue> {
         unsafe {
-            Self::from_native_with_entered(if val {
+            Ok(Self::from_native(if val {
                 jsTrue.unwrap()()
             } else {
                 jsFalse.unwrap()()
-            })
+            }))
         }
     }
 
     /// 从int值创建
-    pub fn from_int(value: i32) -> Result<JsValuePerssist> {
-        unsafe { Self::from_native_with_entered(jsInt.unwrap()(value)) }
+    pub fn from_int(value: i32) -> Result<JsValue> {
+        unsafe { Ok(Self::from_native(jsInt.unwrap()(value))) }
     }
 
     /// 从f64值创建
-    pub fn from_f64(value: f64) -> Result<JsValuePerssist> {
-        unsafe { Self::from_native_with_entered(jsDouble.unwrap()(value)) }
+    pub fn from_f64(value: f64) -> Result<JsValue> {
+        unsafe { Ok(Self::from_native(jsDouble.unwrap()(value))) }
     }
 
     /// 从str创建
-    pub fn from_str(str: &str) -> Result<JsValuePerssist> {
+    pub fn from_str(str: &str) -> Result<JsValue> {
         unsafe {
-            Self::from_native_with_entered(jsString.unwrap()(
+            Ok(Self::from_native(jsString.unwrap()(
                 Context::current()?.state,
                 to_cstr_ptr(str)?.to_utf8(),
-            ))
+            )))
         }
     }
 
     /// 从二进制数据创建
-    pub fn from_data(data: &[u8]) -> Result<JsValuePerssist> {
+    pub fn from_data(data: &[u8]) -> Result<JsValue> {
         unsafe {
-            Self::from_native_with_entered(jsArrayBuffer.unwrap()(
+            Ok(Self::from_native(jsArrayBuffer.unwrap()(
                 Context::current()?.state,
                 data.as_ptr() as *const i8,
                 data.len(),
-            ))
+            )))
         }
     }
 
@@ -669,12 +687,9 @@ pub struct JsValuePerssist {
     state: jsExecState,
 }
 
-impl JsValuePerssist {
-    pub(crate) fn from_native(state: jsExecState, value: JsValue) -> Self {
-        Self {
-            value: Rc::new(value),
-            state,
-        }
+impl From<JsValuePerssist> for JsValue {
+    fn from(value: JsValuePerssist) -> Self {
+        Self::from_native(value.value.value)
     }
 }
 
@@ -698,7 +713,7 @@ impl Drop for JsValuePerssist {
             if from_bool_int(jsIsValidExecState.unwrap()(self.state))
                 && from_bool_int(jsIsJsValueValid.unwrap()(self.state, self.value.value))
             {
-                // jsReleaseRef.unwrap()(self.state, self.value.value);
+                jsReleaseRef.unwrap()(self.state, self.value.value);
             }
         }
     }
@@ -709,7 +724,7 @@ pub trait FromJs: Sized {
 }
 
 pub trait IntoJs {
-    fn into_js(&self) -> Result<JsValuePerssist>;
+    fn into_js(&self) -> Result<JsValue>;
 }
 
 macro_rules! ImplFromIntoInt {
@@ -721,7 +736,7 @@ macro_rules! ImplFromIntoInt {
         }
 
         impl IntoJs for $type {
-            fn into_js(&self) -> Result<JsValuePerssist> {
+            fn into_js(&self) -> Result<JsValue> {
                 JsValue::from_int(*self as i32)
             }
         }
@@ -737,7 +752,7 @@ macro_rules! ImplFromIntoF64 {
         }
 
         impl IntoJs for $type {
-            fn into_js(&self) -> Result<JsValuePerssist> {
+            fn into_js(&self) -> Result<JsValue> {
                 JsValue::from_f64(*self as f64)
             }
         }
@@ -763,13 +778,13 @@ impl FromJs for String {
 }
 
 impl IntoJs for &str {
-    fn into_js(&self) -> Result<JsValuePerssist> {
+    fn into_js(&self) -> Result<JsValue> {
         JsValue::from_str(self)
     }
 }
 
 impl IntoJs for String {
-    fn into_js(&self) -> Result<JsValuePerssist> {
+    fn into_js(&self) -> Result<JsValue> {
         JsValue::from_str(self)
     }
 }
@@ -781,7 +796,7 @@ impl FromJs for ArrayBuffer {
 }
 
 impl IntoJs for ArrayBuffer {
-    fn into_js(&self) -> Result<JsValuePerssist> {
+    fn into_js(&self) -> Result<JsValue> {
         JsValue::from_data(&self.0)
     }
 }
@@ -808,14 +823,14 @@ impl<T: FromJs> FromJs for Vec<T> {
 }
 
 impl<T: IntoJs> IntoJs for Vec<T> {
-    fn into_js(&self) -> Result<JsValuePerssist> {
+    fn into_js(&self) -> Result<JsValue> {
         let vals = JsValue::array()?;
         vals.set_len(self.len() as i32)?;
 
         let mut index = 0;
         for val in self.iter() {
             let js_val = val.into_js()?;
-            vals.set_at(index, js_val.as_ref())?;
+            vals.set_at(index, &js_val)?;
             index = index + 1;
         }
         Ok(vals)
@@ -840,7 +855,7 @@ impl<T: FromJs> FromJs for HashMap<String, T> {
 }
 
 impl<T: IntoJs> IntoJs for HashMap<String, T> {
-    fn into_js(&self) -> Result<JsValuePerssist> {
+    fn into_js(&self) -> Result<JsValue> {
         let obj = JsValue::object()?;
         for (key, val) in self.iter() {
             let js_val = val.into_js()?;
@@ -858,7 +873,7 @@ impl FromJs for () {
 }
 
 impl IntoJs for () {
-    fn into_js(&self) -> Result<JsValuePerssist> {
+    fn into_js(&self) -> Result<JsValue> {
         JsValue::undefined()
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, Result},
-    javascript::{FromJs, IntoJs, JsDelegate, JsValue, JsValuePerssist},
+    javascript::{FromJs, IntoJs, JsDelegate, JsValue},
 };
 
 pub struct JsFunction<RET: IntoJs>(Box<dyn Fn(&[&JsValue]) -> RET>);
@@ -10,7 +10,7 @@ impl<RET: IntoJs> JsDelegate for JsFunction<RET> {
         true
     }
 
-    fn call(&mut self, args: &[&JsValue]) -> Result<JsValuePerssist> {
+    fn call(&mut self, args: &[&JsValue]) -> Result<JsValue> {
         self.0(args).into_js()
     }
 }
@@ -53,7 +53,7 @@ impl JsDelegate for TestGetterSetter {
         false
     }
 
-    fn get(&mut self, name: &str) -> Result<JsValuePerssist> {
+    fn get(&mut self, name: &str) -> Result<JsValue> {
         match name {
             "number" => self.number.into_js(),
             "string" => self.string.into_js(),
@@ -71,7 +71,7 @@ impl JsDelegate for TestGetterSetter {
         Ok(())
     }
 
-    fn call(&mut self, _args: &[&JsValue]) -> Result<JsValuePerssist> {
+    fn call(&mut self, _args: &[&JsValue]) -> Result<JsValue> {
         Err(Error::NotImplement)
     }
 
