@@ -1,6 +1,8 @@
+mod javascript;
+
 use super::common::Rect;
-use super::error::{Error, Result};
-use crate::javascript::{JsDelegate, JsValue};
+use super::error::Result;
+use crate::javascript::{FromJs, JsValue};
 use crate::webview;
 use lazy_static::lazy_static;
 
@@ -10,6 +12,16 @@ mod wke {
     pub use crate::run_once;
     pub use crate::RunOnceFlag;
 }
+
+#[cfg(target_arch = "x86")]
+const DLL_NAME: &str = "miniblink_x32.dll";
+#[cfg(target_arch = "x86_64")]
+const DLL_NAME: &str = "miniblink_x64.dll";
+
+#[cfg(debug_assertions)]
+const CONFIG_DIR: &str = "debug";
+#[cfg(not(debug_assertions))]
+const CONFIG_DIR: &str = "release";
 
 lazy_static! {
     static ref DEV_TOOLS_PATH: String = std::env::current_dir()
@@ -24,60 +36,18 @@ lazy_static! {
 }
 
 fn get_dll_path() -> String {
-    let target = std::env::current_dir()
+    std::env::current_dir()
         .expect("cannot get current dir")
-        .join("target");
-    let target = if cfg!(debug_assertions) {
-        target.join("debug")
-    } else {
-        target.join("release")
-    };
-
-    target
+        .join("target")
+        .join(CONFIG_DIR)
         .join("bin")
-        .join("miniblink.dll")
+        .join(DLL_NAME)
         .to_str()
         .expect("cannot get dll path")
         .to_owned()
 }
 
-pub struct TestCaller;
-impl JsDelegate for TestCaller {
-    fn has_get(&self) -> bool {
-        false
-    }
-
-    fn has_set(&self) -> bool {
-        false
-    }
-
-    fn has_call(&self) -> bool {
-        true
-    }
-
-    fn get(&mut self, _name: &str) -> Result<crate::javascript::JsValuePerssist> {
-        Err(Error::NotImplement)
-    }
-
-    fn set(&mut self, _name: &str, _val: &JsValue) -> Result<()> {
-        Err(Error::NotImplement)
-    }
-
-    fn call(&mut self, args: &[&JsValue]) -> Result<crate::javascript::JsValuePerssist> {
-        println!("TestCaller: 测试");
-        println!("参数长度: {}", args.len());
-        if args.len() > 0 {
-            println!("参数1: {}", args[0].to_string()?);
-        }
-        JsValue::undefined()
-    }
-
-    fn finalize(&mut self) -> Result<()> {
-        Ok(())
-    }
-}
-
-async fn test_popup() -> Result<()> {
+async fn test_jsbind() -> Result<()> {
     let webview = webview::WebView::popup(Rect {
         x: 0,
         y: 0,
@@ -92,10 +62,43 @@ async fn test_popup() -> Result<()> {
         .add(|frame| {
             let ctx = frame.get_context();
             let _holder = ctx.enter();
-            let func = JsValue::bind_function("test", TestCaller {})?;
-            ctx.global().set("test", &func)?;
-            ctx.eval("window.test(\"测试接口\")")?;
-            Ok(())
+
+            let log = JsValue::bind_function(
+                "log",
+                javascript::JsFunction::from(|args: &[&JsValue]| {
+                    if args.len() == 0 {
+                        return ();
+                    }
+                    if let Ok(str) = String::from_js(args[0]) {
+                        println!("js log: {}", str);
+                    }
+                    ()
+                }),
+            )?;
+            ctx.global().set("log", &log)?;
+
+            ctx.global().set(
+                "TestGetterSetter",
+                JsValue::bind_object("test", javascript::TestGetterSetter::default())?.as_ref(),
+            )?;
+
+            ctx.eval("window.test(\"test interface\")")?;
+            ctx.eval(
+                r#"(function() {
+                window.TestGetterSetter.number = 5;
+                window.TestGetterSetter.string = "string";
+
+                window.log("TestGetterSetter::number=" + window.TestGetterSetter.number);
+                window.log("TestGetterSetter::string=" + window.TestGetterSetter.string);
+                window.log("TestGetterSetter::const=" + window.TestGetterSetter.const_value);
+            })()"#,
+            )?;
+
+            let webview = frame.webview()?;
+            tokio::task::spawn_local(async move {
+                webview.close();
+            });
+            Result::Ok(())
         });
     webview.show();
 
@@ -110,15 +113,15 @@ async fn test_popup() -> Result<()> {
 }
 
 #[test]
-fn test_tokio() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    main()?;
-    Ok(())
+fn test_wke() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    main()
 }
 
 #[cfg(test)]
 #[super::main(dll = get_dll_path)]
 async fn main() -> crate::error::Result<()> {
+    // 将报告写出到文件
     // std::fs::write("target/apis.txt", wke::report())?;
-    test_popup().await?;
+    test_jsbind().await?;
     return Ok(());
 }

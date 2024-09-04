@@ -108,6 +108,7 @@ pub enum NavigationType {
 
 impl NavigationType {
     #[allow(non_upper_case_globals)]
+    #[allow(non_snake_case)]
     pub(crate) fn from_native(navigation: wkeNavigationType) -> Self {
         match navigation {
             _wkeNavigationType_WKE_NAVIGATION_TYPE_LINKCLICK => Self::LinkClick,
@@ -188,6 +189,7 @@ pub enum ConsoleLevel {
 
 impl ConsoleLevel {
     #[allow(non_upper_case_globals)]
+    #[allow(non_snake_case)]
     pub fn from_native(level: wkeConsoleLevel) -> Self {
         match level {
             _wkeConsoleLevel_wkeLevelLog => Self::Log,
@@ -422,6 +424,7 @@ impl WebViewInner {
     }
 }
 
+#[derive(Clone)]
 pub struct WebView {
     inner: Rc<RefCell<WebViewInner>>,
 }

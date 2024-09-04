@@ -2,6 +2,7 @@ use super::javascript::{Context, JsValue};
 use crate::common::Size;
 use crate::error::Error;
 use crate::utils::{from_bool_int, from_mem, from_ptr, to_bool_int, to_cstr_ptr};
+use crate::webview::WebView;
 use crate::{error::Result, utils::from_cstr_ptr};
 use std::ptr::null_mut;
 use wke_sys::*;
@@ -85,6 +86,10 @@ pub struct WebFrame {
 impl WebFrame {
     pub(crate) fn from_native(webview: wkeWebView, frame: wkeWebFrameHandle) -> Self {
         Self { webview, frame }
+    }
+
+    pub fn webview(&self) -> Result<WebView> {
+        WebView::from_native(self.webview)
     }
 
     /// 获取url

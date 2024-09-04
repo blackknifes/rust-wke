@@ -88,6 +88,7 @@ pub enum JsType {
 
 impl JsType {
     #[allow(non_upper_case_globals)]
+    #[allow(non_snake_case)]
     pub(crate) fn from_native(js_type: jsType) -> Self {
         match js_type {
             _jsType_JSTYPE_NUMBER => Self::Number,
@@ -245,14 +246,34 @@ impl Context {
 
 /// Js委托
 pub trait JsDelegate {
-    fn has_get(&self) -> bool;
-    fn has_set(&self) -> bool;
-    fn has_call(&self) -> bool;
+    fn has_get(&self) -> bool {
+        false
+    }
+    fn has_set(&self) -> bool {
+        false
+    }
+    fn has_call(&self) -> bool {
+        false
+    }
 
-    fn get(&mut self, name: &str) -> Result<JsValuePerssist>;
-    fn set(&mut self, name: &str, val: &JsValue) -> Result<()>;
-    fn call(&mut self, args: &[&JsValue]) -> Result<JsValuePerssist>;
-    fn finalize(&mut self) -> Result<()>;
+    #[allow(unused_variables)]
+    fn get(&mut self, name: &str) -> Result<JsValuePerssist> {
+        Err(Error::NotImplement)
+    }
+
+    #[allow(unused_variables)]
+    fn set(&mut self, name: &str, val: &JsValue) -> Result<()> {
+        Err(Error::NotImplement)
+    }
+
+    #[allow(unused_variables)]
+    fn call(&mut self, args: &[&JsValue]) -> Result<JsValuePerssist> {
+        Err(Error::NotImplement)
+    }
+
+    fn finalize(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
 
 struct JsDataC {
@@ -827,5 +848,17 @@ impl<T: IntoJs> IntoJs for HashMap<String, T> {
         }
 
         Ok(obj)
+    }
+}
+
+impl FromJs for () {
+    fn from_js(_: &JsValue) -> Result<Self> {
+        Ok(())
+    }
+}
+
+impl IntoJs for () {
+    fn into_js(&self) -> Result<JsValuePerssist> {
+        JsValue::undefined()
     }
 }
