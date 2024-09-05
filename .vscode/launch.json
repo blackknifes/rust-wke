@@ -21,6 +21,9 @@
                 },
             },
             "cwd": "${workspaceFolder}",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
             "args": [
                 "--show-output"
             ]

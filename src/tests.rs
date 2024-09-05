@@ -5,7 +5,10 @@ use super::error::Result;
 use crate::javascript::{FromJs, JsValue};
 use crate::webview;
 use lazy_static::lazy_static;
-use wke::javascript::IntoJs;
+use serde::{Deserialize, Serialize};
+use wke::javascript::query::emit;
+use wke::javascript::{query::on_query, Context, IntoJs};
+use wke::Error;
 use wke_jsbind::{FromJs, IntoJs};
 
 #[cfg(test)]
@@ -62,15 +65,11 @@ async fn test_jsbind() -> Result<()> {
         width: 800,
         height: 600,
     });
-    webview.load_url("https://baidu.com");
-    // webview.set_debug_config(DebugConfig::ShowDevTools(DEV_TOOLS_PATH.clone()))?;
     webview
         .delegates()
         .on_did_create_script_context
         .add(|frame| {
-            let ctx = frame.get_context();
-            let _holder = ctx.enter();
-
+            let ctx = Context::current()?;
             let log = JsValue::bind_function(
                 "log",
                 javascript::JsFunction::from(|args: &[&JsValue]| {
@@ -107,35 +106,77 @@ async fn test_jsbind() -> Result<()> {
             })()"#,
             )?;
 
-            ctx.eval(r#"
+            ctx.eval(
+                r#"
                 window.log("auto_js=" + JSON.stringify(window.auto_js));
-            "#)?;
+            "#,
+            )?;
             let ret = ctx.eval("return {val: 50, str: \"test\"}")?;
             let auto_js = AutoJs::from_js(&ret)?;
             assert_eq!(auto_js.val, 50);
             assert_eq!(auto_js.str, "test");
 
             let webview = frame.webview()?;
-            tokio::task::spawn_local(async move {
-                webview.close();
-            });
+            webview.close();
             Result::Ok(())
         });
-    webview.show();
 
     let devtools = webview.show_devtools(&DEV_TOOLS_PATH).await?;
     webview.delegates().on_window_destroy.add(move || {
         devtools.close();
-        super::exit();
         Ok(())
     });
 
+    webview.load_url("https://baidu.com");
+    webview.show();
+    webview.wait_close().await;
     Ok(())
 }
 
-#[test]
-fn test_wke() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    main()
+async fn test_mb_query() -> Result<()> {
+    on_query("test", |query: TestQuery| async move {
+        println!("query: str={}, val={}", query.str, query.val);
+        emit("test", query)?;
+
+        Result::<()>::Err(Error::NotImplement)
+    });
+
+    let webview = webview::WebView::popup(Rect {
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 600,
+    });
+
+    webview.delegates().on_did_create_script_context.add(|_| {
+        let ctx = Context::current()?;
+        ctx.eval("console.log('on_did_create_script_context')")?;
+        super::javascript::query::on_context_created(ctx.clone())?;
+        Ok(())
+    });
+
+    webview.delegates().on_will_release_script_context.add(|_| {
+        let ctx = Context::current()?;
+        super::javascript::query::on_context_released(ctx)?;
+        Ok(())
+    });
+
+    let devtools = webview.show_devtools(&DEV_TOOLS_PATH).await?;
+    webview.delegates().on_window_destroy.add(move || {
+        devtools.close();
+        Ok(())
+    });
+
+    webview.load_url("https://baidu.com");
+    webview.show();
+    webview.wait_close().await;
+    Ok(())
+}
+
+#[derive(Serialize, Deserialize)]
+struct TestQuery {
+    str: String,
+    val: i32,
 }
 
 #[cfg(test)]
@@ -143,6 +184,15 @@ fn test_wke() -> std::result::Result<(), Box<dyn std::error::Error>> {
 async fn main() -> crate::error::Result<()> {
     // 将报告写出到文件
     // std::fs::write("target/apis.txt", wke::report())?;
+
     test_jsbind().await?;
+    test_mb_query().await?;
+
+    wke::exit();
     return Ok(());
+}
+
+#[test]
+fn test_wke() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    main()
 }

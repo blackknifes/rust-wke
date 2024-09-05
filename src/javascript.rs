@@ -1,4 +1,5 @@
 mod extern_c;
+pub mod query;
 
 use super::webview::WebView;
 use crate::error::{Error, Result};
@@ -125,6 +126,7 @@ impl JsType {
 }
 
 /// js上下文环境
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Context {
     state: jsExecState,
 }
@@ -198,7 +200,9 @@ impl Context {
     pub fn eval(&self, script: &str) -> Result<JsValue> {
         unsafe {
             let value = jsEval.unwrap()(self.state, to_cstr_ptr(script)?.to_utf8());
-
+            if self.has_exception() {
+                return Err(Error::JsCallException);
+            }
             Ok(JsValue::from_native(value))
         }
     }
@@ -282,7 +286,7 @@ pub trait JsDelegate {
 
     /// 作为函数调用回调
     #[allow(unused_variables)]
-    fn call(&mut self, args: &[&JsValue]) -> Result<JsValue> {
+    fn call(&mut self, name: &str, args: &[&JsValue]) -> Result<JsValue> {
         Err(Error::NotImplement)
     }
 
@@ -313,13 +317,11 @@ impl JsDataC {
 
     fn new(name: &str, delegate: Box<dyn JsDelegate>) -> Result<Box<Self>> {
         unsafe {
-            let name = to_cstr_ptr(name)?;
-            if name.len() >= 100 {
-                return Err(Error::OutOfBounds);
-            }
+            let mut typename = [0; 100];
+            to_cstr_ptr(name)?.copy_to(&mut typename);
 
             let data: tagjsData = jsData {
-                typeName: [0; 100],
+                typeName: typename,
                 propertyGet: if delegate.has_get() {
                     Some(extern_c::on_get)
                 } else {
@@ -371,7 +373,7 @@ impl JsValue {
     }
 
     /// 维持对象
-    pub fn perssist(self) -> Result<JsValuePerssist> {
+    pub fn perssist(&self) -> Result<JsValuePerssist> {
         Self::from_native_with_entered(self.value)
     }
 
@@ -681,10 +683,26 @@ impl JsValue {
     }
 }
 
-#[derive(Clone)]
 pub struct JsValuePerssist {
     value: Rc<JsValue>,
     state: jsExecState,
+}
+
+impl std::clone::Clone for JsValuePerssist {
+    fn clone(&self) -> Self {
+        unsafe {
+            if from_bool_int(jsIsValidExecState.unwrap()(self.state))
+                && from_bool_int(jsIsJsValueValid.unwrap()(self.state, self.value.value))
+            {
+                jsAddRef.unwrap()(self.state, self.value.value);
+            }
+
+            Self {
+                value: self.value.clone(),
+                state: self.state.clone(),
+            }
+        }
+    }
 }
 
 impl From<JsValuePerssist> for JsValue {

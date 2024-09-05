@@ -10,7 +10,7 @@ impl<RET: IntoJs> JsDelegate for JsFunction<RET> {
         true
     }
 
-    fn call(&mut self, args: &[&JsValue]) -> Result<JsValue> {
+    fn call(&mut self, _name: &str, args: &[&JsValue]) -> Result<JsValue> {
         self.0(args).into_js()
     }
 }
@@ -71,7 +71,7 @@ impl JsDelegate for TestGetterSetter {
         Ok(())
     }
 
-    fn call(&mut self, _args: &[&JsValue]) -> Result<JsValue> {
+    fn call(&mut self, _name: &str, _args: &[&JsValue]) -> Result<JsValue> {
         Err(Error::NotImplement)
     }
 

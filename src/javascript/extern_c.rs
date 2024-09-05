@@ -1,4 +1,4 @@
-use super::{JsDataC, JsValue};
+use super::{Context, JsDataC, JsValue};
 use crate::{
     error::{Error, Result},
     utils::{from_bool_int, from_cstr_ptr, to_cstr_ptr},
@@ -99,6 +99,8 @@ pub(crate) extern "C" fn on_call(
     arg_count: c_int,
 ) -> jsValue {
     unsafe {
+        let ctx = Context::from_native(es);
+        let _holder = ctx.enter();
         match get_data(es, object) {
             Ok(data) => {
                 let mut arg_vec = Vec::new();
@@ -108,12 +110,14 @@ pub(crate) extern "C" fn on_call(
 
                 let args: Vec<&JsValue> = arg_vec.iter().collect();
 
-                data.as_mut()
-                    .unwrap()
+                let datac = data.as_mut().unwrap();
+
+                let name = from_cstr_ptr(datac.data.typeName.as_ptr()).unwrap_or_default();
+                datac
                     .delegate
                     .as_mut()
                     .unwrap()
-                    .call(&args)
+                    .call(&name, &args)
                     .map(|val| {
                         jsAddRef.unwrap()(es, val.value);
                         val.value

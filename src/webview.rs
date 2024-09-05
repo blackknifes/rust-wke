@@ -9,14 +9,55 @@ use crate::utils::{from_bool_int, from_cstr_ptr, to_bool_int, to_cstr16_ptr, to_
 use crate::DefineMulticastDelegate;
 use extern_c::{find_cookie_on_visit_all_cookie, FindCookie};
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::{ffi::CStr, ptr::null_mut};
 use wke_sys::*;
 mod extern_c;
+
+pub struct Cookie {
+    pub name: String,
+    pub value: String,
+    pub domain: String,
+    pub path: String,
+    pub secure: bool,
+    pub http_only: bool,
+    pub expires: Option<i32>,
+}
+
+impl Cookie {
+    pub(crate) unsafe fn from_native(
+        name: String,
+        value: *const ::std::os::raw::c_char,
+        domain: *const ::std::os::raw::c_char,
+        path: *const ::std::os::raw::c_char,
+        secure: ::std::os::raw::c_int,
+        http_only: ::std::os::raw::c_int,
+        expires: *mut ::std::os::raw::c_int,
+    ) -> Result<Self> {
+        let value = from_cstr_ptr(value)?;
+        let domain = from_cstr_ptr(domain)?;
+        let path = from_cstr_ptr(path)?;
+        let secure = from_bool_int(secure);
+        let http_only = from_bool_int(http_only);
+        let expires = if expires.is_null() {
+            None
+        } else {
+            Some(expires.read())
+        };
+        return Ok(Self {
+            name,
+            value,
+            domain,
+            path,
+            secure,
+            http_only,
+            expires,
+        });
+    }
+}
 
 pub enum DebugConfig {
     ///开启开发者工具，此时param要填写开发者工具的资源路径，如file:///c:/miniblink-release/front_end/inspector.html。注意param此时必须是utf8编码
@@ -293,7 +334,7 @@ DefineMulticastDelegate!(WebViewPrintDelegate, (frame: &WebFrame /* , params: */
 // wkeOnDownload
 // wkeOnDownload2
 
-pub struct WebViewDelegates {
+pub struct Delegates {
     ///光标改变
     pub on_caret_changed: Lazy<WebViewCaretChangedDelegate>,
     /// 鼠标划过url
@@ -347,8 +388,9 @@ pub struct WebViewDelegates {
 
 pub(crate) struct WebViewInner {
     webview: wkeWebView,
-    values: HashMap<String, Box<dyn Any>>,
-    delegates: WebViewDelegates,
+    values: RefCell<HashMap<String, Box<dyn Any>>>,
+    destroy_waiter: RefCell<Vec<InvokeFuture<()>>>,
+    delegates: RefCell<Delegates>,
 }
 
 macro_rules! LazyNew {
@@ -365,7 +407,8 @@ impl WebViewInner {
         Self {
             webview,
             values: Default::default(),
-            delegates: WebViewDelegates {
+            destroy_waiter: Default::default(),
+            delegates: RefCell::new(Delegates {
                 on_caret_changed: LazyNew!(webview, wkeOnCaretChanged, on_caret_changed),
                 on_mouse_over_url_changed: LazyNew!(
                     webview,
@@ -419,56 +462,14 @@ impl WebViewInner {
                 on_will_media_load: LazyNew!(webview, wkeOnWillMediaLoad, on_will_media_load),
                 on_print: LazyNew!(webview, wkeOnPrint, on_print),
                 on_window_destroy: Default::default(),
-            },
+            }),
         }
     }
 }
 
 #[derive(Clone)]
 pub struct WebView {
-    inner: Rc<RefCell<WebViewInner>>,
-}
-
-pub struct Cookie {
-    pub name: String,
-    pub value: String,
-    pub domain: String,
-    pub path: String,
-    pub secure: bool,
-    pub http_only: bool,
-    pub expires: Option<i32>,
-}
-
-impl Cookie {
-    pub(crate) unsafe fn from_native(
-        name: String,
-        value: *const ::std::os::raw::c_char,
-        domain: *const ::std::os::raw::c_char,
-        path: *const ::std::os::raw::c_char,
-        secure: ::std::os::raw::c_int,
-        http_only: ::std::os::raw::c_int,
-        expires: *mut ::std::os::raw::c_int,
-    ) -> Result<Self> {
-        let value = from_cstr_ptr(value)?;
-        let domain = from_cstr_ptr(domain)?;
-        let path = from_cstr_ptr(path)?;
-        let secure = from_bool_int(secure);
-        let http_only = from_bool_int(http_only);
-        let expires = if expires.is_null() {
-            None
-        } else {
-            Some(expires.read())
-        };
-        return Ok(Self {
-            name,
-            value,
-            domain,
-            path,
-            secure,
-            http_only,
-            expires,
-        });
-    }
+    inner: Rc<WebViewInner>,
 }
 
 extern "C" fn on_visit_all_cookie(
@@ -541,23 +542,9 @@ pub enum CookieCommand {
     ReloadCookiesFromFile = _wkeCookieCommand_wkeCookieCommandReloadCookiesFromFile,
 }
 
-pub struct DelegatesMut<'a>(std::cell::RefMut<'a, WebViewInner>);
-impl<'a> Deref for DelegatesMut<'a> {
-    type Target = WebViewDelegates;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0.delegates
-    }
-}
-impl<'a> DerefMut for DelegatesMut<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0.delegates
-    }
-}
-
 impl WebView {
     pub(crate) fn native(&self) -> wkeWebView {
-        self.inner.borrow().webview
+        self.inner.webview
     }
 
     pub(crate) fn attach_webview(webview: wkeWebView) -> Self {
@@ -566,7 +553,7 @@ impl WebView {
                 return webview;
             }
 
-            let inner = Rc::new(RefCell::new(WebViewInner::new(webview)));
+            let inner = Rc::new(WebViewInner::new(webview));
             let ptr = Rc::into_raw(inner.clone());
 
             wkeSetUserKeyValue.unwrap()(
@@ -581,20 +568,18 @@ impl WebView {
         }
     }
 
-    pub(crate) fn detach_webview(webview: wkeWebView) -> Result<Self> {
+    pub(crate) fn detach_webview(webview: wkeWebView) {
         unsafe {
             if !from_bool_int(wkeIsWebviewValid.unwrap()(webview)) {
-                return Err(Error::InvalidReference);
+                return;
             }
 
             let ptr = wkeGetUserKeyValue.unwrap()(webview, to_cstr_ptr("rust").unwrap().to_utf8());
             if ptr.is_null() {
-                return Err(Error::InvalidReference);
+                return;
             }
 
-            let inner = Rc::from_raw(ptr as *const RefCell<WebViewInner>);
-
-            Ok(Self { inner })
+            let _ = Rc::from_raw(ptr as *const RefCell<WebViewInner>);
         }
     }
 
@@ -604,13 +589,13 @@ impl WebView {
                 return Err(Error::InvalidReference);
             }
 
-            let ptr = wkeGetUserKeyValue.unwrap()(webview, to_cstr_ptr("rust").unwrap().to_utf8());
+            let ptr = wkeGetUserKeyValue.unwrap()(webview, to_cstr_ptr("rust").unwrap().to_utf8())
+                as *const WebViewInner;
             if ptr.is_null() {
                 return Err(Error::InvalidReference);
             }
-
             Rc::increment_strong_count(ptr);
-            let inner = Rc::from_raw(ptr as *const RefCell<WebViewInner>);
+            let inner = Rc::from_raw(ptr);
 
             Ok(Self { inner })
         }
@@ -642,8 +627,12 @@ impl WebView {
         }
     }
 
-    pub fn delegates(&self) -> DelegatesMut {
-        DelegatesMut(self.inner.borrow_mut())
+    pub fn delegates(&self) -> RefMut<Delegates> {
+        self.inner.delegates.borrow_mut()
+    }
+
+    fn delegates_ref(&self) -> Ref<Delegates> {
+        self.inner.delegates.borrow()
     }
 
     pub fn close(&self) {
@@ -890,10 +879,7 @@ impl WebView {
 
     pub fn set_local_storage_full_path(&self, path: &str) {
         unsafe {
-            wkeSetLocalStorageFullPath.unwrap()(
-                self.native(),
-                (&to_cstr16_ptr(path)).as_ptr(),
-            );
+            wkeSetLocalStorageFullPath.unwrap()(self.native(), (&to_cstr16_ptr(path)).as_ptr());
         }
     }
 
@@ -1251,20 +1237,33 @@ impl WebView {
     }
 
     pub fn set_user_value<T: Any + Clone>(&self, key: String, value: T) {
-        self.inner.borrow_mut().values.insert(key, Box::new(value));
+        self.inner.values.borrow_mut().insert(key, Box::new(value));
     }
 
     pub fn get_user_value<T: Clone + 'static>(&self, key: &str) -> Option<T> {
         if let Some(Some(val)) = self
             .inner
-            .borrow()
             .values
+            .borrow()
             .get(key)
             .map(|item| item.downcast_ref::<T>().map(Clone::clone))
         {
             Some(val)
         } else {
             None
+        }
+    }
+
+    pub fn wait_close(&self) -> InvokeFuture<()> {
+        let fut: InvokeFuture<()> = Default::default();
+        self.inner.destroy_waiter.borrow_mut().push(fut.clone());
+        fut
+    }
+
+    fn emit_destroy(&self) {
+        let futs = std::mem::replace(self.inner.destroy_waiter.borrow_mut().as_mut(), Vec::new());
+        for fut in futs {
+            fut.ready(());
         }
     }
 }

@@ -20,6 +20,15 @@ impl Utf8 {
     pub(crate) fn len(&self) -> usize {
         self.0.as_c_str().count_bytes()
     }
+
+    pub(crate) fn copy_to(&self, buf: &mut [i8]) {
+        unsafe {
+            let cstr = self.to_utf8();
+            for index in 0..self.len().min(buf.len()) {
+                buf[index] = cstr.add(index).read();
+            }
+        }
+    }
 }
 
 pub(crate) unsafe fn to_cstr_ptr(str: &str) -> Result<Utf8> {

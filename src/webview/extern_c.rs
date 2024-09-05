@@ -66,12 +66,14 @@ pub(crate) extern "C" fn find_cookie_on_visit_all_cookie(
 }
 
 pub(crate) extern "C" fn on_window_destroy(
-    webview: wkeWebView,
+    native_webview: wkeWebView,
     _param: *mut ::std::os::raw::c_void,
 ) {
-    let webview = WebView::detach_webview(webview).unwrap();
-    webview.delegates().on_window_destroy.emit();
-    webview.inner.borrow_mut().webview = null_mut();
+    if let Ok(webview) = WebView::from_native(native_webview) {
+        webview.delegates_ref().on_window_destroy.emit();
+        webview.emit_destroy();
+        WebView::detach_webview(native_webview);
+    }
 }
 
 pub(crate) extern "C" fn on_caret_changed(
@@ -82,7 +84,7 @@ pub(crate) extern "C" fn on_caret_changed(
     unsafe {
         if let Ok(webview) = WebView::from_native(webview) {
             webview
-                .delegates()
+                .delegates_ref()
                 .on_caret_changed
                 .emit(Rect::from_native(r.as_ref().unwrap()));
         }
@@ -96,7 +98,7 @@ pub(crate) extern "C" fn on_mouse_over_url_changed(
 ) {
     let webview = WebView::from_native(webview).unwrap();
     webview
-        .delegates()
+        .delegates_ref()
         .on_mouse_over_url_changed
         .emit(&from_wkestring(url));
 }
@@ -108,7 +110,7 @@ pub(crate) extern "C" fn on_title_changed(
 ) {
     let webview = WebView::from_native(webview).unwrap();
     webview
-        .delegates()
+        .delegates_ref()
         .on_title_changed
         .emit(&from_wkestring(title));
 }
@@ -120,7 +122,7 @@ pub(crate) extern "C" fn on_url_changed(
 ) {
     let webview = WebView::from_native(webview).unwrap();
     webview
-        .delegates()
+        .delegates_ref()
         .on_url_changed
         .emit(&from_wkestring(url));
 }
@@ -134,7 +136,7 @@ pub(crate) extern "C" fn on_frame_url_changed(
     let frame = WebFrame::from_native(webview, frame);
     let webview = WebView::from_native(webview).unwrap();
     webview
-        .delegates()
+        .delegates_ref()
         .on_frame_url_changed
         .emit(&frame, &from_wkestring(url));
 }
@@ -146,7 +148,7 @@ pub(crate) extern "C" fn on_alert_box(
 ) {
     let webview = WebView::from_native(webview).unwrap();
     webview
-        .delegates()
+        .delegates_ref()
         .on_dialog
         .emit(&mut super::DialogType::Alert, &from_wkestring(msg));
 }
@@ -158,7 +160,7 @@ pub(crate) extern "C" fn on_confirm_box(
 ) -> bool {
     let webview = WebView::from_native(webview).unwrap();
     let mut result = HandleResult::default();
-    webview.delegates().on_dialog.emit(
+    webview.delegates_ref().on_dialog.emit(
         &mut super::DialogType::Confirm(&mut result),
         &from_wkestring(msg),
     );
@@ -175,7 +177,7 @@ pub(crate) extern "C" fn on_prompt_box(
 ) -> bool {
     let webview = WebView::from_native(webview).unwrap();
     let mut result = HandleResult::default();
-    webview.delegates().on_dialog.emit(
+    webview.delegates_ref().on_dialog.emit(
         &mut super::DialogType::Prompt(&mut result),
         &from_wkestring(msg),
     );
@@ -194,7 +196,7 @@ pub(crate) extern "C" fn on_navigation(
     let webview = WebView::from_native(webview).unwrap();
 
     let mut result = HandleResult::default();
-    webview.delegates().on_navigation.emit(
+    webview.delegates_ref().on_navigation.emit(
         NavigationType::from_native(navigation_type),
         &from_wkestring(url),
         &mut result,
@@ -213,7 +215,7 @@ pub(crate) extern "C" fn on_create_view(
         let webview = WebView::from_native(webview).unwrap();
         let mut result = HandleResult::default();
 
-        webview.delegates().on_create_view.emit(
+        webview.delegates_ref().on_create_view.emit(
             NavigationType::from_native(navigation_type),
             &from_wkestring(url),
             WindowFeature::from_native(features.as_ref().unwrap()),
@@ -241,7 +243,7 @@ pub(crate) extern "C" fn on_document_ready(
     _param: *mut ::std::os::raw::c_void,
 ) {
     let webview = WebView::from_native(webview).unwrap();
-    webview.delegates().on_document_ready.emit();
+    webview.delegates_ref().on_document_ready.emit();
 }
 
 pub(crate) extern "C" fn on_frame_document_ready(
@@ -251,10 +253,7 @@ pub(crate) extern "C" fn on_frame_document_ready(
 ) {
     let frame = WebFrame::from_native(webview, frame_id);
     let webview = WebView::from_native(webview).unwrap();
-    webview
-        .delegates()
-        .on_frame_document_ready
-        .emit(&frame);
+    webview.delegates_ref().on_frame_document_ready.emit(&frame);
 }
 
 #[allow(non_upper_case_globals)]
@@ -272,7 +271,7 @@ pub(crate) extern "C" fn on_loading_finish(
         _ => LoadingResult::Failed(from_wkestring(reason)),
     };
     webview
-        .delegates()
+        .delegates_ref()
         .on_loading_finish
         .emit(&from_wkestring(url), loading_result);
 }
@@ -289,7 +288,7 @@ pub(crate) extern "C" fn on_console(
     let webview = WebView::from_native(webview).unwrap();
     let level = ConsoleLevel::from_native(level);
     webview
-        .delegates()
+        .delegates_ref()
         .on_console
         .emit(&super::ConsoleMessage {
             level,
@@ -311,7 +310,7 @@ pub(crate) extern "C" fn on_load_url_begin(
         let url = from_cstr_ptr(url).unwrap_or("".to_owned());
         let mut result = HandleResult::default();
         webview
-            .delegates()
+            .delegates_ref()
             .on_load_url_begin
             .emit(&url, &Job::from_native(job), &mut result);
 
@@ -330,7 +329,7 @@ pub(crate) extern "C" fn on_load_url_end(
     unsafe {
         let webview = WebView::from_native(webview).unwrap();
         let mut job_buf = JobBuf::from_native(buf, len as usize);
-        webview.delegates().on_load_url_end.emit(
+        webview.delegates_ref().on_load_url_end.emit(
             &from_cstr_ptr(url).unwrap_or("".to_owned()),
             &Job::from_native(job),
             &mut job_buf,
@@ -348,7 +347,7 @@ pub(crate) extern "C" fn on_load_url_headers_received(
         let webview = WebView::from_native(webview).unwrap();
         let job = Job::from_native(job);
         webview
-            .delegates()
+            .delegates_ref()
             .on_load_url_headers_received
             .emit(&from_cstr_ptr(url).unwrap_or("".to_owned()), &job);
     }
@@ -364,7 +363,7 @@ pub(crate) extern "C" fn on_load_url_finish(
     unsafe {
         let webview = WebView::from_native(webview).unwrap();
         let job = Job::from_native(job);
-        webview.delegates().on_load_url_finish.emit(
+        webview.delegates_ref().on_load_url_finish.emit(
             &from_cstr_ptr(url).unwrap_or("".to_owned()),
             &job,
             len,
@@ -382,7 +381,7 @@ pub(crate) extern "C" fn on_load_url_fail(
         let webview = WebView::from_native(webview).unwrap();
         let job = Job::from_native(job);
         webview
-            .delegates()
+            .delegates_ref()
             .on_load_url_fail
             .emit(&from_cstr_ptr(url).unwrap_or("".to_owned()), &job);
     }
@@ -398,8 +397,11 @@ pub(crate) extern "C" fn on_did_create_script_context(
 ) {
     let frame = WebFrame::from_native(webview, frame_id);
     let webview = WebView::from_native(webview).unwrap();
+
+    let _holder = frame.get_context().enter();
+
     webview
-        .delegates()
+        .delegates_ref()
         .on_did_create_script_context
         .emit(&frame);
 }
@@ -414,8 +416,10 @@ pub(crate) extern "C" fn on_will_release_script_context(
     let frame = WebFrame::from_native(webview, frame_id);
     let webview = WebView::from_native(webview).unwrap();
 
+    let _holder = frame.get_context().enter();
+
     webview
-        .delegates()
+        .delegates_ref()
         .on_will_release_script_context
         .emit(&frame);
 }
@@ -427,10 +431,7 @@ pub(crate) extern "C" fn on_window_closing(
     let webview = WebView::from_native(webview).unwrap();
     let mut result = HandleResult::default();
 
-    webview
-        .delegates()
-        .on_window_closing
-        .emit(&mut result);
+    webview.delegates_ref().on_window_closing.emit(&mut result);
 
     result.unwrap_or(true)
 }
@@ -450,7 +451,7 @@ pub(crate) extern "C" fn on_draggable_regions_changed(
         }
 
         webview
-            .delegates()
+            .delegates_ref()
             .on_draggable_regions_changed
             .emit(&regions);
     }
@@ -464,7 +465,7 @@ pub(crate) extern "C" fn on_will_media_load(
 ) {
     unsafe {
         let webview = WebView::from_native(webview).unwrap();
-        webview.delegates().on_will_media_load.emit(
+        webview.delegates_ref().on_will_media_load.emit(
             &from_cstr_ptr(url).unwrap_or("".to_owned()),
             MediaInfo::from_native(info.read()),
         );
@@ -479,5 +480,5 @@ pub(crate) extern "C" fn on_print(
 ) {
     let frame = WebFrame::from_native(webview, frame_id);
     let webview = WebView::from_native(webview).unwrap();
-    webview.delegates().on_print.emit(&frame);
+    webview.delegates_ref().on_print.emit(&frame);
 }
