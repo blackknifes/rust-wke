@@ -4,7 +4,9 @@ use crate::error::Error;
 use crate::utils::{from_bool_int, from_mem, from_ptr, to_bool_int, to_cstr_ptr};
 use crate::webview::WebView;
 use crate::{error::Result, utils::from_cstr_ptr};
+use std::cell::RefCell;
 use std::ptr::null_mut;
+use std::rc::Rc;
 use wke_sys::*;
 
 /// 打印设置
@@ -77,58 +79,115 @@ impl std::default::Default for PrintSettings {
     }
 }
 
+struct WebFrameInner(RefCell<Option<wkeWebFrameHandle>>);
+impl WebFrameInner {
+    pub fn new(frame: wkeWebFrameHandle) -> Self {
+        Self(RefCell::new(Some(frame)))
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.0.borrow().is_some()
+    }
+
+    pub fn invalid(&self) {
+        self.0.borrow_mut().take();
+    }
+}
+
 /// frame对象，主要代表页面主框架与iframe
+#[derive(Clone)]
 pub struct WebFrame {
-    pub(crate) webview: wkeWebView,
-    pub(crate) frame: wkeWebFrameHandle,
+    webview: WebView,
+    inner: Rc<WebFrameInner>,
 }
 
 impl WebFrame {
-    pub(crate) fn from_native(webview: wkeWebView, frame: wkeWebFrameHandle) -> Self {
-        Self { webview, frame }
+    pub(crate) fn from_native(webview: wkeWebView, frame: wkeWebFrameHandle) -> Result<Self> {
+        let webview = WebView::from_native(webview)?;
+        Ok(Self {
+            webview,
+            inner: Rc::new(WebFrameInner::new(frame)),
+        })
     }
 
-    pub fn webview(&self) -> Result<WebView> {
-        WebView::from_native(self.webview)
+    pub fn webview(&self) -> WebView {
+        self.webview.clone()
+    }
+
+    pub(crate) fn native(&self) -> Result<wkeWebFrameHandle> {
+        self.inner
+            .0
+            .borrow()
+            .clone()
+            .take()
+            .ok_or_else(|| Error::InvalidReference)
+    }
+
+    /// 引用是否有效
+    pub fn is_valid(&self) -> bool {
+        self.inner.is_valid()
     }
 
     /// 获取url
     pub fn get_url(&self) -> Result<String> {
-        unsafe { from_cstr_ptr(wkeGetFrameUrl.unwrap()(self.webview, self.frame)) }
+        unsafe {
+            from_cstr_ptr(wkeGetFrameUrl.unwrap()(
+                self.webview.native(),
+                self.native()?,
+            ))
+        }
     }
 
     /// 获取document完整url
     pub fn get_document_complete_url(&self, partial_url: &str) -> Result<String> {
         unsafe {
             from_cstr_ptr(wkeGetDocumentCompleteURL.unwrap()(
-                self.webview,
-                self.frame,
+                self.webview.native(),
+                self.native()?,
                 to_cstr_ptr(partial_url)?.to_utf8(),
             ))
         }
     }
 
     /// 获取环境
-    pub fn get_context(&self) -> Context {
-        unsafe { Context::from_native(wkeGetGlobalExecByFrame.unwrap()(self.webview, self.frame)) }
+    pub fn context(&self) -> Result<Context> {
+        unsafe {
+            let ctx = wkeGetGlobalExecByFrame.unwrap()(self.webview.native(), self.native()?);
+            if ctx.is_null() {
+                return Err(Error::InvalidReference);
+            }
+            Ok(Context::from_native(ctx))
+        }
     }
 
     /// 是否为主框架
     pub fn is_main(&self) -> bool {
-        unsafe { from_bool_int(wkeIsMainFrame.unwrap()(self.webview, self.frame)) }
+        unsafe {
+            match self.native() {
+                Ok(frame) => from_bool_int(wkeIsMainFrame.unwrap()(self.webview.native(), frame)),
+                Err(_) => false,
+            }
+        }
     }
 
     /// 是否为远程框架
     pub fn is_remote_frame(&self) -> bool {
-        unsafe { from_bool_int(wkeIsWebRemoteFrame.unwrap()(self.webview, self.frame)) }
+        unsafe {
+            match self.native() {
+                Ok(frame) => {
+                    from_bool_int(wkeIsWebRemoteFrame.unwrap()(self.webview.native(), frame))
+                }
+                Err(_) => false,
+            }
+        }
     }
 
     /// 执行js脚本
     pub fn run_js(&self, script: &str, is_in_closure: bool) -> Result<JsValue> {
         unsafe {
             let val = wkeRunJsByFrame.unwrap()(
-                self.webview,
-                self.frame,
+                self.webview.native(),
+                self.native()?,
                 to_cstr_ptr(script)?.to_utf8(),
                 is_in_closure,
             );
@@ -139,7 +198,11 @@ impl WebFrame {
     /// 插入css
     pub fn insert_css_by_frame(&self, css: &str) -> Result<()> {
         unsafe {
-            wkeInsertCSSByFrame.unwrap()(self.webview, self.frame, to_cstr_ptr(css)?.to_utf8());
+            wkeInsertCSSByFrame.unwrap()(
+                self.webview.native(),
+                self.native()?,
+                to_cstr_ptr(css)?.to_utf8(),
+            );
             Ok(())
         }
     }
@@ -148,7 +211,7 @@ impl WebFrame {
     pub fn print_to_pdf(&self, settings: PrintSettings) -> Result<Vec<Vec<u8>>> {
         unsafe {
             let settings = settings.into_native();
-            let ptr = wkeUtilPrintToPdf.unwrap()(self.webview, self.frame, &settings);
+            let ptr = wkeUtilPrintToPdf.unwrap()(self.webview.native(), self.native()?, &settings);
             if ptr.is_null() {
                 return Err(Error::InvalidReference);
             }
@@ -175,7 +238,7 @@ impl WebFrame {
                 width: size.width,
                 height: size.height,
             };
-            let mem = wkePrintToBitmap.unwrap()(self.webview, self.frame, &settings);
+            let mem = wkePrintToBitmap.unwrap()(self.webview.native(), self.native()?, &settings);
             if mem.is_null() {
                 return Err(Error::InvalidReference);
             }
@@ -189,8 +252,8 @@ impl WebFrame {
     pub fn get_content_as_markup(&self) -> Result<String> {
         unsafe {
             from_cstr_ptr(wkeGetContentAsMarkup.unwrap()(
-                self.webview,
-                self.frame,
+                self.webview.native(),
+                self.native()?,
                 null_mut(),
             ))
         }

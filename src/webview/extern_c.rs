@@ -1,11 +1,6 @@
 use super::{Cookie, LoadingResult, MediaInfo, WebView};
 use crate::{
-    common::{handle::HandleResult, InvokeFuture, Rect},
-    error::Result,
-    net::{Job, JobBuf},
-    utils::{from_cstr_ptr, from_wkestring, set_wkestring},
-    webframe::WebFrame,
-    webview::{ConsoleLevel, DraggableRegion, NavigationType, WindowFeature},
+    common::{handle::HandleResult, InvokeFuture, Rect}, error::Result, javascript::IntoJs, net::{Job, JobBuf}, utils::{from_cstr_ptr, from_wkestring, set_wkestring}, webframe::WebFrame, webview::{ConsoleLevel, DraggableRegion, NavigationType, WindowFeature}
 };
 use std::ptr::null_mut;
 use wke_sys::*;
@@ -390,15 +385,23 @@ pub(crate) extern "C" fn on_load_url_fail(
 pub(crate) extern "C" fn on_did_create_script_context(
     webview: wkeWebView,
     _param: *mut ::std::os::raw::c_void,
-    frame_id: wkeWebFrameHandle,
+    frame: wkeWebFrameHandle,
     _context: *mut ::std::os::raw::c_void,
     _extension_group: ::std::os::raw::c_int,
     _world_id: ::std::os::raw::c_int,
 ) {
-    let frame = WebFrame::from_native(webview, frame_id);
-    let webview = WebView::from_native(webview).unwrap();
+    let webview_id = format!("{:x}", webview as isize);
+    let frame_id = format!("{:x}", frame as isize);
 
-    let _holder = frame.get_context().enter();
+    let frame = WebFrame::from_native(webview, frame);
+    let webview = WebView::from_native(webview).unwrap();
+    let context = frame.get_context();
+    if let Ok(global) = context.global() {        
+        global.set("webview", webview_id.into_js());
+        global.set("frame", frame_id.into_js());
+    }
+
+    let _holder = context.enter();
 
     webview
         .delegates_ref()

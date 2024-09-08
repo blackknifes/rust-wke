@@ -96,3 +96,10 @@ pub(crate) fn from_mem(mem: *const wkeMemBuf) -> Vec<u8> {
 pub(crate) fn from_ptr(ptr: *const c_void, size: usize) -> Vec<u8> {
     unsafe { Vec::from_raw_parts(ptr as *mut u8, size, size) }
 }
+
+pub(crate) fn check_ptr<T>(value: *const T) -> Result<()> {
+    if value.is_null() {
+        return Err(Error::InvalidReference);
+    }
+    Ok(())
+}
