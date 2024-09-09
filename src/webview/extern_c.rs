@@ -1,6 +1,11 @@
 use super::{Cookie, LoadingResult, MediaInfo, WebView};
 use crate::{
-    common::{handle::HandleResult, InvokeFuture, Rect}, error::Result, javascript::IntoJs, net::{Job, JobBuf}, utils::{from_cstr_ptr, from_wkestring, set_wkestring}, webframe::WebFrame, webview::{ConsoleLevel, DraggableRegion, NavigationType, WindowFeature}
+    common::{handle::HandleResult, InvokeFuture, Rect},
+    error::Result,
+    net::{Job, JobBuf},
+    utils::{from_cstr_ptr, from_wkestring, set_wkestring},
+    webframe::WebFrame,
+    webview::{ConsoleLevel, DraggableRegion, NavigationType, WindowFeature},
 };
 use std::ptr::null_mut;
 use wke_sys::*;
@@ -128,8 +133,8 @@ pub(crate) extern "C" fn on_frame_url_changed(
     frame: wkeWebFrameHandle,
     url: wkeString,
 ) {
-    let frame = WebFrame::from_native(webview, frame);
     let webview = WebView::from_native(webview).unwrap();
+    let frame = WebFrame::from_native(webview.clone(), frame).unwrap();
     webview
         .delegates_ref()
         .on_frame_url_changed
@@ -246,8 +251,8 @@ pub(crate) extern "C" fn on_frame_document_ready(
     _param: *mut ::std::os::raw::c_void,
     frame_id: wkeWebFrameHandle,
 ) {
-    let frame = WebFrame::from_native(webview, frame_id);
     let webview = WebView::from_native(webview).unwrap();
+    let frame = WebFrame::from_native(webview.clone(), frame_id).unwrap();
     webview.delegates_ref().on_frame_document_ready.emit(&frame);
 }
 
@@ -390,17 +395,11 @@ pub(crate) extern "C" fn on_did_create_script_context(
     _extension_group: ::std::os::raw::c_int,
     _world_id: ::std::os::raw::c_int,
 ) {
-    let webview_id = format!("{:x}", webview as isize);
-    let frame_id = format!("{:x}", frame as isize);
-
-    let frame = WebFrame::from_native(webview, frame);
     let webview = WebView::from_native(webview).unwrap();
-    let context = frame.get_context();
-    if let Ok(global) = context.global() {        
-        global.set("webview", webview_id.into_js());
-        global.set("frame", frame_id.into_js());
-    }
+    let frame = WebFrame::from_native(webview.clone(), frame).unwrap();
+    webview.on_did_create_script_context(frame.clone());
 
+    let context = frame.context().unwrap();
     let _holder = context.enter();
 
     webview
@@ -416,10 +415,11 @@ pub(crate) extern "C" fn on_will_release_script_context(
     _context: *mut ::std::os::raw::c_void,
     _world_id: ::std::os::raw::c_int,
 ) {
-    let frame = WebFrame::from_native(webview, frame_id);
     let webview = WebView::from_native(webview).unwrap();
+    let frame = WebFrame::from_native(webview.clone(), frame_id).unwrap();
+    webview.on_will_release_script_context(frame.clone());
 
-    let _holder = frame.get_context().enter();
+    let _holder = frame.context().unwrap().enter();
 
     webview
         .delegates_ref()
@@ -481,7 +481,7 @@ pub(crate) extern "C" fn on_print(
     frame_id: wkeWebFrameHandle,
     _params: *mut ::std::os::raw::c_void,
 ) {
-    let frame = WebFrame::from_native(webview, frame_id);
     let webview = WebView::from_native(webview).unwrap();
+    let frame = WebFrame::from_native(webview.clone(), frame_id).unwrap();
     webview.delegates_ref().on_print.emit(&frame);
 }

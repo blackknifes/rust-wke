@@ -13,6 +13,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::rc::Rc;
+use std::sync::atomic::AtomicI32;
 use std::{ffi::CStr, ptr::null_mut};
 use wke_sys::*;
 mod extern_c;
@@ -389,6 +390,8 @@ pub struct Delegates {
 pub(crate) struct WebViewInner {
     webview: wkeWebView,
     values: RefCell<HashMap<String, Box<dyn Any>>>,
+    frame_id_sequence: AtomicI32,
+    frames: RefCell<HashMap<i32, WebFrame>>,
     destroy_waiter: RefCell<Vec<InvokeFuture<()>>>,
     delegates: RefCell<Delegates>,
 }
@@ -407,6 +410,8 @@ impl WebViewInner {
         Self {
             webview,
             values: Default::default(),
+            frame_id_sequence: Default::default(),
+            frames: Default::default(),
             destroy_waiter: Default::default(),
             delegates: RefCell::new(Delegates {
                 on_caret_changed: LazyNew!(webview, wkeOnCaretChanged, on_caret_changed),
@@ -900,10 +905,8 @@ impl WebView {
         }
     }
 
-    pub fn get_url(&self) -> Result<String> {
-        self.get_main_frame()
-            .ok_or_else(|| Error::InvalidReference)?
-            .get_url()
+    pub fn url(&self) -> Result<String> {
+        unsafe { from_cstr_ptr(wkeGetURL.unwrap()(self.native())) }
     }
 
     pub fn get_cursor_info_type(&self) -> i32 {
@@ -1171,18 +1174,27 @@ impl WebView {
         }
     }
 
-    pub fn get_main_frame(&self) -> Option<WebFrame> {
-        unsafe {
-            let frame = wkeWebFrameGetMainFrame.unwrap()(self.native());
-            if frame.is_null() {
-                return None;
-            }
-            Some(WebFrame::from_native(self.native(), frame))
-        }
+    pub fn frames(&self) -> Vec<WebFrame> {
+        self.inner.frames.borrow().values().cloned().collect()
     }
 
-    pub fn is_main(&self, frame: &WebFrame) -> bool {
-        unsafe { from_bool_int(wkeIsMainFrame.unwrap()(self.native(), frame.frame)) }
+    pub fn find_frame(&self, id: i32) -> Result<WebFrame> {
+        self.inner
+            .frames
+            .borrow()
+            .values()
+            .find(|val| id == val.id())
+            .cloned()
+            .ok_or_else(|| Error::InvalidReference)
+    }
+
+    pub fn main_frame(&self) -> Option<WebFrame> {
+        self.inner
+            .frames
+            .borrow()
+            .values()
+            .find(|frame| frame.is_main())
+            .cloned()
     }
 
     pub async fn get_content_as_markup(&self) -> String {
@@ -1265,5 +1277,20 @@ impl WebView {
         for fut in futs {
             fut.ready(());
         }
+    }
+
+    pub(crate) fn generate_frame_id(&self) -> i32 {
+        self.inner
+            .frame_id_sequence
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+    }
+
+    pub(crate) fn on_did_create_script_context(&self, frame: WebFrame) {
+        self.inner.frames.borrow_mut().insert(frame.id(), frame);
+    }
+
+    pub(crate) fn on_will_release_script_context(&self, frame: WebFrame) {
+        frame.invalid();
+        self.inner.frames.borrow_mut().remove(&frame.id());
     }
 }

@@ -1,4 +1,3 @@
-use super::javascript::{Context, JsValue};
 use crate::common::Size;
 use crate::error::Error;
 use crate::utils::{from_bool_int, from_mem, from_ptr, to_bool_int, to_cstr_ptr};
@@ -79,18 +78,25 @@ impl std::default::Default for PrintSettings {
     }
 }
 
-struct WebFrameInner(RefCell<Option<wkeWebFrameHandle>>);
+pub(crate) struct WebFrameInner {
+    id: i32,
+    frame: RefCell<Option<wkeWebFrameHandle>>,
+}
+
 impl WebFrameInner {
-    pub fn new(frame: wkeWebFrameHandle) -> Self {
-        Self(RefCell::new(Some(frame)))
+    pub fn new(id: i32, frame: wkeWebFrameHandle) -> Self {
+        Self {
+            id,
+            frame: RefCell::new(Some(frame)),
+        }
     }
 
     pub fn is_valid(&self) -> bool {
-        self.0.borrow().is_some()
+        self.frame.borrow().is_some()
     }
 
     pub fn invalid(&self) {
-        self.0.borrow_mut().take();
+        self.frame.borrow_mut().take();
     }
 }
 
@@ -102,21 +108,80 @@ pub struct WebFrame {
 }
 
 impl WebFrame {
-    pub(crate) fn from_native(webview: wkeWebView, frame: wkeWebFrameHandle) -> Result<Self> {
-        let webview = WebView::from_native(webview)?;
+    pub(crate) fn get_frame_id_with_exec_state(state: jsExecState) -> Result<i32> {
+        unsafe {
+            let mb = jsGetGlobal.unwrap()(state, to_cstr_ptr("mb")?.to_utf8());
+            if !from_bool_int(jsIsObject.unwrap()(mb)) {
+                return Err(Error::InvalidReference);
+            }
+            let frame_id_val = jsGet.unwrap()(state, mb, to_cstr_ptr("frameId")?.to_utf8());
+            if !from_bool_int(jsIsNumber.unwrap()(frame_id_val)) {
+                return Err(Error::InvalidReference);
+            }
+
+            Ok(jsToInt.unwrap()(state, frame_id_val))
+        }
+    }
+
+    pub(crate) fn get_frame_from_state(state: jsExecState) -> Result<WebFrame> {
+        unsafe {
+            let webview = jsGetWebView.unwrap()(state);
+            if webview.is_null() {
+                return Err(Error::InvalidReference);
+            }
+            let frame_id = Self::get_frame_id_with_exec_state(state)?;
+            let webview = WebView::from_native(webview)?;
+            webview.find_frame(frame_id)
+        }
+    }
+
+    pub(crate) fn get_frame_from_native(
+        webview: wkeWebView,
+        frame: wkeWebFrameHandle,
+    ) -> Result<WebFrame> {
+        unsafe {
+            let state = wkeGetGlobalExecByFrame.unwrap()(webview, frame);
+            if state.is_null() {
+                return Err(Error::InvalidReference);
+            }
+
+            let webview = jsGetWebView.unwrap()(state);
+            if webview.is_null() {
+                return Err(Error::InvalidReference);
+            }
+            let frame_id = Self::get_frame_id_with_exec_state(state)?;
+            let webview = WebView::from_native(webview)?;
+            webview.find_frame(frame_id)
+        }
+    }
+
+    pub(crate) fn from_native(webview: WebView, frame: wkeWebFrameHandle) -> Result<Self> {
+        if let Ok(frame) = Self::get_frame_from_native(webview.native(), frame) {
+            return Ok(frame);
+        }
+
+        let id = webview.generate_frame_id();
         Ok(Self {
             webview,
-            inner: Rc::new(WebFrameInner::new(frame)),
+            inner: Rc::new(WebFrameInner::new(id, frame)),
         })
+    }
+
+    pub(crate) fn invalid(&self) {
+        self.inner.invalid()
     }
 
     pub fn webview(&self) -> WebView {
         self.webview.clone()
     }
 
+    pub fn id(&self) -> i32 {
+        self.inner.id
+    }
+
     pub(crate) fn native(&self) -> Result<wkeWebFrameHandle> {
         self.inner
-            .0
+            .frame
             .borrow()
             .clone()
             .take()
@@ -149,17 +214,6 @@ impl WebFrame {
         }
     }
 
-    /// 获取环境
-    pub fn context(&self) -> Result<Context> {
-        unsafe {
-            let ctx = wkeGetGlobalExecByFrame.unwrap()(self.webview.native(), self.native()?);
-            if ctx.is_null() {
-                return Err(Error::InvalidReference);
-            }
-            Ok(Context::from_native(ctx))
-        }
-    }
-
     /// 是否为主框架
     pub fn is_main(&self) -> bool {
         unsafe {
@@ -183,15 +237,15 @@ impl WebFrame {
     }
 
     /// 执行js脚本
-    pub fn run_js(&self, script: &str, is_in_closure: bool) -> Result<JsValue> {
+    pub fn run_js(&self, script: &str, is_in_closure: bool) -> Result<()> {
         unsafe {
-            let val = wkeRunJsByFrame.unwrap()(
+            wkeRunJsByFrame.unwrap()(
                 self.webview.native(),
                 self.native()?,
                 to_cstr_ptr(script)?.to_utf8(),
                 is_in_closure,
             );
-            Ok(JsValue::from_native(val))
+            Ok(())
         }
     }
 
