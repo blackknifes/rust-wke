@@ -2,8 +2,11 @@ use crate::error::{Error, Result};
 use std::{
     ffi::{c_char, CStr, CString},
     os::raw::c_void,
+    sync::atomic::AtomicUsize,
 };
 use wke_sys::*;
+
+const ID_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
 pub(crate) unsafe fn to_cstr16_ptr(str: &str) -> Vec<u16> {
     let mut str_u16 = str.encode_utf16().collect::<Vec<u16>>();
@@ -97,9 +100,39 @@ pub(crate) fn from_ptr(ptr: *const c_void, size: usize) -> Vec<u8> {
     unsafe { Vec::from_raw_parts(ptr as *mut u8, size, size) }
 }
 
+#[allow(dead_code)]
 pub(crate) fn check_ptr<T>(value: *const T) -> Result<()> {
     if value.is_null() {
         return Err(Error::InvalidReference);
     }
     Ok(())
+}
+
+pub(crate) fn next_id() -> usize {
+    ID_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+}
+
+pub(crate) struct OnDrop(Option<Box<dyn FnOnce() + 'static>>);
+
+impl OnDrop {
+    pub fn new<FN>(func: FN) -> Self
+    where
+        FN: FnOnce() + 'static,
+    {
+        OnDrop(Some(Box::new(func)))
+    }
+
+    #[allow(dead_code)]
+    pub fn abort(&mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for OnDrop {
+    fn drop(&mut self) {
+        match self.0.take() {
+            Some(cb) => cb(),
+            None => todo!(),
+        }
+    }
 }

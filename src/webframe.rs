@@ -1,6 +1,6 @@
 use crate::common::Size;
 use crate::error::Error;
-use crate::utils::{from_bool_int, from_mem, from_ptr, to_bool_int, to_cstr_ptr};
+use crate::utils::{from_bool_int, from_mem, from_ptr, next_id, to_bool_int, to_cstr_ptr};
 use crate::webview::WebView;
 use crate::{error::Result, utils::from_cstr_ptr};
 use std::cell::RefCell;
@@ -79,14 +79,14 @@ impl std::default::Default for PrintSettings {
 }
 
 pub(crate) struct WebFrameInner {
-    id: i32,
+    id: usize,
     frame: RefCell<Option<wkeWebFrameHandle>>,
 }
 
 impl WebFrameInner {
-    pub fn new(id: i32, frame: wkeWebFrameHandle) -> Self {
+    pub fn new(frame: wkeWebFrameHandle) -> Self {
         Self {
-            id,
+            id: next_id(),
             frame: RefCell::new(Some(frame)),
         }
     }
@@ -107,63 +107,23 @@ pub struct WebFrame {
     inner: Rc<WebFrameInner>,
 }
 
+impl std::hash::Hash for WebFrame {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.inner.id.hash(state);
+    }
+}
+impl PartialEq for WebFrame {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.id == other.inner.id
+    }
+}
+impl Eq for WebFrame {}
+
 impl WebFrame {
-    pub(crate) fn get_frame_id_with_exec_state(state: jsExecState) -> Result<i32> {
-        unsafe {
-            let mb = jsGetGlobal.unwrap()(state, to_cstr_ptr("mb")?.to_utf8());
-            if !from_bool_int(jsIsObject.unwrap()(mb)) {
-                return Err(Error::InvalidReference);
-            }
-            let frame_id_val = jsGet.unwrap()(state, mb, to_cstr_ptr("frameId")?.to_utf8());
-            if !from_bool_int(jsIsNumber.unwrap()(frame_id_val)) {
-                return Err(Error::InvalidReference);
-            }
-
-            Ok(jsToInt.unwrap()(state, frame_id_val))
-        }
-    }
-
-    pub(crate) fn get_frame_from_state(state: jsExecState) -> Result<WebFrame> {
-        unsafe {
-            let webview = jsGetWebView.unwrap()(state);
-            if webview.is_null() {
-                return Err(Error::InvalidReference);
-            }
-            let frame_id = Self::get_frame_id_with_exec_state(state)?;
-            let webview = WebView::from_native(webview)?;
-            webview.find_frame(frame_id)
-        }
-    }
-
-    pub(crate) fn get_frame_from_native(
-        webview: wkeWebView,
-        frame: wkeWebFrameHandle,
-    ) -> Result<WebFrame> {
-        unsafe {
-            let state = wkeGetGlobalExecByFrame.unwrap()(webview, frame);
-            if state.is_null() {
-                return Err(Error::InvalidReference);
-            }
-
-            let webview = jsGetWebView.unwrap()(state);
-            if webview.is_null() {
-                return Err(Error::InvalidReference);
-            }
-            let frame_id = Self::get_frame_id_with_exec_state(state)?;
-            let webview = WebView::from_native(webview)?;
-            webview.find_frame(frame_id)
-        }
-    }
-
     pub(crate) fn from_native(webview: WebView, frame: wkeWebFrameHandle) -> Result<Self> {
-        if let Ok(frame) = Self::get_frame_from_native(webview.native(), frame) {
-            return Ok(frame);
-        }
-
-        let id = webview.generate_frame_id();
         Ok(Self {
             webview,
-            inner: Rc::new(WebFrameInner::new(id, frame)),
+            inner: Rc::new(WebFrameInner::new(frame)),
         })
     }
 
@@ -175,7 +135,7 @@ impl WebFrame {
         self.webview.clone()
     }
 
-    pub fn id(&self) -> i32 {
+    pub fn id(&self) -> usize {
         self.inner.id
     }
 

@@ -1956,13 +1956,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "wke-jsbind",
+ "wke-command",
  "wke-main",
  "wke-sys",
 ]
 
 [[package]]
-name = "wke-jsbind"
+name = "wke-command"
 version = "0.1.0"
 dependencies = [
  "quote",

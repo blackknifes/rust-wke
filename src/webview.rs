@@ -13,9 +13,9 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::rc::Rc;
-use std::sync::atomic::AtomicI32;
 use std::{ffi::CStr, ptr::null_mut};
 use wke_sys::*;
+
 mod extern_c;
 
 pub struct Cookie {
@@ -370,10 +370,6 @@ pub struct Delegates {
     pub on_load_url_finish: Lazy<WebViewLoadUrlFinishDelegate>,
     /// url加载失败
     pub on_load_url_fail: Lazy<WebViewLoadUrlFailDelegate>,
-    /// js环境创建
-    pub on_did_create_script_context: Lazy<WebViewDidCreateScriptContextDelegate>,
-    /// js环境销毁
-    pub on_will_release_script_context: Lazy<WebViewWillReleaseScriptContextDelegate>,
     /// 收到窗口关闭请求
     pub on_window_closing: Lazy<WebViewWindowClosingDelegate>,
     /// 可拖拽区域改变
@@ -383,6 +379,10 @@ pub struct Delegates {
     /// 打印
     pub on_print: Lazy<WebViewPrintDelegate>,
 
+    /// js环境创建
+    pub on_did_create_script_context: WebViewDidCreateScriptContextDelegate,
+    /// js环境销毁
+    pub on_will_release_script_context: WebViewWillReleaseScriptContextDelegate,
     /// 窗口销毁
     pub on_window_destroy: WebViewWindowDestroyDelegate,
 }
@@ -390,8 +390,7 @@ pub struct Delegates {
 pub(crate) struct WebViewInner {
     webview: wkeWebView,
     values: RefCell<HashMap<String, Box<dyn Any>>>,
-    frame_id_sequence: AtomicI32,
-    frames: RefCell<HashMap<i32, WebFrame>>,
+    frames: RefCell<HashMap<usize, WebFrame>>,
     destroy_waiter: RefCell<Vec<InvokeFuture<()>>>,
     delegates: RefCell<Delegates>,
 }
@@ -410,7 +409,6 @@ impl WebViewInner {
         Self {
             webview,
             values: Default::default(),
-            frame_id_sequence: Default::default(),
             frames: Default::default(),
             destroy_waiter: Default::default(),
             delegates: RefCell::new(Delegates {
@@ -448,16 +446,6 @@ impl WebViewInner {
                 ),
                 on_load_url_finish: LazyNew!(webview, wkeOnLoadUrlFinish, on_load_url_finish),
                 on_load_url_fail: LazyNew!(webview, wkeOnLoadUrlFail, on_load_url_fail),
-                on_did_create_script_context: LazyNew!(
-                    webview,
-                    wkeOnDidCreateScriptContext,
-                    on_did_create_script_context
-                ),
-                on_will_release_script_context: LazyNew!(
-                    webview,
-                    wkeOnWillReleaseScriptContext,
-                    on_will_release_script_context
-                ),
                 on_window_closing: LazyNew!(webview, wkeOnWindowClosing, on_window_closing),
                 on_draggable_regions_changed: LazyNew!(
                     webview,
@@ -466,6 +454,8 @@ impl WebViewInner {
                 ),
                 on_will_media_load: LazyNew!(webview, wkeOnWillMediaLoad, on_will_media_load),
                 on_print: LazyNew!(webview, wkeOnPrint, on_print),
+                on_did_create_script_context: Default::default(),
+                on_will_release_script_context: Default::default(),
                 on_window_destroy: Default::default(),
             }),
         }
@@ -567,6 +557,8 @@ impl WebView {
                 ptr as *mut c_void,
             );
 
+            wkeOnDidCreateScriptContext.unwrap()(webview, Some(extern_c::on_did_create_script_context), null_mut());
+            wkeOnWillReleaseScriptContext.unwrap()(webview, Some(extern_c::on_will_release_script_context), null_mut());
             wkeOnWindowDestroy.unwrap()(webview, Some(extern_c::on_window_destroy), null_mut());
 
             Self { inner }
@@ -1178,7 +1170,7 @@ impl WebView {
         self.inner.frames.borrow().values().cloned().collect()
     }
 
-    pub fn find_frame(&self, id: i32) -> Result<WebFrame> {
+    pub fn find_frame(&self, id: usize) -> Result<WebFrame> {
         self.inner
             .frames
             .borrow()
@@ -1277,12 +1269,6 @@ impl WebView {
         for fut in futs {
             fut.ready(());
         }
-    }
-
-    pub(crate) fn generate_frame_id(&self) -> i32 {
-        self.inner
-            .frame_id_sequence
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
     }
 
     pub(crate) fn on_did_create_script_context(&self, frame: WebFrame) {

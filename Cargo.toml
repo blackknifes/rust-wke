@@ -1,5 +1,5 @@
 [workspace]
-members = ["wke-main", "wke-sys", "wke-jsbind"]
+members = ["wke-main", "wke-sys", "wke-command"]
 
 [package]
 name = "wke"
@@ -22,8 +22,8 @@ version = "0.1.0"
 path = "wke-main"
 version = "0.1.0"
 
-[dependencies.wke-jsbind]
-path = "wke-jsbind"
+[dependencies.wke-command]
+path = "wke-command"
 version = "0.1.0"
 
 [dependencies]

@@ -5,6 +5,7 @@ pub mod javascript;
 pub mod net;
 pub mod webframe;
 pub mod webview;
+pub use wke_command::command;
 pub use wke_main::main;
 
 mod utils;

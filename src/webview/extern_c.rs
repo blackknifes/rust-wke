@@ -397,11 +397,9 @@ pub(crate) extern "C" fn on_did_create_script_context(
 ) {
     let webview = WebView::from_native(webview).unwrap();
     let frame = WebFrame::from_native(webview.clone(), frame).unwrap();
+    crate::javascript::on_did_create_script_context(frame.clone());
+
     webview.on_did_create_script_context(frame.clone());
-
-    let context = frame.context().unwrap();
-    let _holder = context.enter();
-
     webview
         .delegates_ref()
         .on_did_create_script_context
@@ -417,9 +415,9 @@ pub(crate) extern "C" fn on_will_release_script_context(
 ) {
     let webview = WebView::from_native(webview).unwrap();
     let frame = WebFrame::from_native(webview.clone(), frame_id).unwrap();
-    webview.on_will_release_script_context(frame.clone());
 
-    let _holder = frame.context().unwrap().enter();
+    crate::javascript::on_will_release_script_context(frame.clone());
+    webview.on_will_release_script_context(frame.clone());
 
     webview
         .delegates_ref()
